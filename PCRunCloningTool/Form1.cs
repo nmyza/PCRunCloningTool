@@ -25,6 +25,9 @@ namespace PCRunCloningTool
         private static readonly CookieContainer cookies = new CookieContainer();
         private static readonly HttpClientHandler handler = new HttpClientHandler();
         private static readonly HttpClient client = null;
+        private static readonly String RUN_TABLE_NAME = "TestRuns";
+        private static readonly String RUN_STATE_FINISHED = "Finished";
+        private DataSet runsDataSet = new DataSet();
 
         static Form1() {
             handler.CookieContainer = cookies;
@@ -49,17 +52,70 @@ namespace PCRunCloningTool
         {
             var list = GetselectedRunList();
             REPORTS_LOCATION = folderPathBox.Text;
-            DownloadResults(list);
+            
             if (unzipCheckBox.Checked)
             {
-                if (!DbManager.CheckDatabaseExistsMSSQL(GlobalSettings.GetConnectionStringWithoutDB(), GlobalSettings.msSqlDatabaseNameCustom))
-                    MessageBox.Show("Database does not exist: " + GlobalSettings.msSqlDatabaseNameCustom);
-                else
-                {
-                    UnzipDownloadedResults(list, "Reports.zip");
-                    DbManager.CopyDB(list, REPORTS_LOCATION, DOMAIN, PROJECT);
-                }
+                CopyRuns(list);
             }
+        }
+
+        private void downloadAllBtn_Click(object sender, EventArgs e)
+        {
+            List<string> result = new List<string>();
+            foreach (DataRow row in runsDataSet.Tables[RUN_TABLE_NAME].Rows)
+            {
+                result.Add(row["RN_RUN_ID"].ToString());
+            }
+            CopyRuns(result);
+        }
+
+        private async void CopyRuns(List<string> runs)
+        {
+            if (!DbManager.CheckDatabaseExistsMSSQL(GlobalSettings.GetConnectionStringWithoutDB(), GlobalSettings.msSqlDatabaseNameCustom))
+                MessageBox.Show("Database does not exist: " + GlobalSettings.msSqlDatabaseNameCustom);
+            else
+            {
+                foreach (string runID in runs)
+                    if (!IsRunFinished(runID))
+                    {
+                        // MessageBox.Show("Run ID: " + runID + " is not Finished");
+                        Logs("Run ID: " + runID + " is not Finished");
+                        continue;
+                    }
+                    else
+                    if (!DbManager.RunExist(runID, DOMAIN, PROJECT))
+                    {
+                        //Logs("Copying run. ID: " + runID);
+                        //Console.WriteLine("Copying run. ID: " + runID);
+                        CopyRun(runID);
+                    }
+                    else
+                    {
+                        Logs("Run is copied. ID: " + runID);
+                        Console.WriteLine("Run is already in DB. ID: " + runID);
+                    }
+            }
+        }
+
+        private void Logs(string message)
+        {
+            consoleBox.Text += message + Environment.NewLine;
+            // set the current caret position to the end
+            consoleBox.SelectionStart = consoleBox.Text.Length;
+            // scroll it automatically
+            consoleBox.ScrollToCaret();
+        }
+
+        private Task CopyRun(string ID)
+        {
+            return Task.Run(() =>
+            {
+                DownloadResults(ID);
+                UnzipDownloadedResults(ID, "Reports.zip");
+                DbManager.CopyDB(ID, REPORTS_LOCATION, DOMAIN, PROJECT);
+                Console.WriteLine("Copied successful. ID: " + ID);
+            });
+            
         }
 
         private void pcDbConnectBtn_Click(object sender, EventArgs e)
@@ -76,7 +132,6 @@ namespace PCRunCloningTool
                 loadProjects(DOMAIN);
                 projectComBox.Enabled = true;
             }
-            // MessageBox.Show(box.Text);
         }
 
         private void projectComBox_SelectedIndexChanged(object sender, EventArgs e)
@@ -100,7 +155,36 @@ namespace PCRunCloningTool
 
         private void btnLogin_Click(object sender, EventArgs e)
         {
-            LoadRuns();
+            if (String.IsNullOrEmpty(DOMAIN)) { MessageBox.Show("Domain is not selected"); return;}
+            if (String.IsNullOrEmpty(PROJECT)) { MessageBox.Show("Project is not selected"); return;}
+
+            runsDataSet.Clear();
+            DbManager.LoadRunsFromDB(runsDataSet, RUN_TABLE_NAME, DOMAIN, PROJECT);
+
+            ShowRuns(runsDataSet, RUN_TABLE_NAME);
+            
+            testRunsGridView.DataSource = runsDataSet;
+            testRunsGridView.DataMember = RUN_TABLE_NAME;
+        }
+
+        private bool IsRunFinished(string ID)
+        {
+            foreach (DataRow row in runsDataSet.Tables[RUN_TABLE_NAME].Rows)
+            {
+                if (ID.Equals(row["RN_RUN_ID"].ToString()))
+                {
+                    return RUN_STATE_FINISHED.Equals(row["RN_STATE"].ToString());
+                }
+            }
+            return false;
+        }
+
+        private void ShowRuns(DataSet data, string tableName)
+        {
+            foreach (DataRow row in data.Tables[tableName].Rows)
+            {
+                checkedListBox1.Items.Add(row["RN_RUN_ID"].ToString());
+            }
         }
 
         //************* Controller *******************/
@@ -119,19 +203,14 @@ namespace PCRunCloningTool
         }
         
 
-        private void UnzipDownloadedResults(List<string> list, String reportName)
+        private void UnzipDownloadedResults(string runID, String reportName)
         {
             REPORTS_LOCATION = folderPathBox.Text;
             string location;
             string filePath;
-
-            foreach (string runID in list)
-            {
-                location = REPORTS_LOCATION + "/" + DOMAIN + "/" + PROJECT + "/" + runID + "/";
-                filePath = location + reportName;
-                Utils.Unzip(filePath, location + "Reports");
-            }
-
+            location = REPORTS_LOCATION + "/" + DOMAIN + "/" + PROJECT + "/" + runID + "/";
+            filePath = location + reportName;
+            Utils.Unzip(filePath, location + "Reports");
         }
 
         
@@ -153,20 +232,8 @@ namespace PCRunCloningTool
                 projectComBox.Items.Add(project);            
         }
 
-        private async void LoadRuns()
+        private async void LoadRunsByREST()
         { 
-            if (DOMAIN == "") 
-            {
-                MessageBox.Show("Domain is not selected");
-                return;
-            }
-
-            if (PROJECT == "")
-            {
-                MessageBox.Show("Project is not selected");
-                return;
-            }
-
             HttpResponseMessage response = client.GetAsync(SERVER_URL + "/LoadTest/rest/domains/" + DOMAIN + "/projects/" + PROJECT + "/Runs").Result;
             var content = await response.Content.ReadAsStringAsync();
 
@@ -179,14 +246,10 @@ namespace PCRunCloningTool
             }
         }
 
-        private async void DownloadResults(List<string> runIdList)
+        private async void DownloadResults(string runID)
         {
-
-            foreach (string runId in runIdList)
-            {
-                TestRunResults runResult = await GetRunMetaData(runId);
-                DownloadReport(runId, runResult.AnalysedResults.Id, "Reports.zip");
-            }
+            TestRunResults runResult = await GetRunMetaData(runID);
+            DownloadReport(runID, runResult.AnalysedResults.Id, "Reports.zip");
         }
 
         private async Task<TestRunResults> GetRunMetaData(String id)
@@ -257,6 +320,8 @@ namespace PCRunCloningTool
 
             myWebClient.DownloadFile(reportURI, filePath);
         }
+
+        
     }
 
 

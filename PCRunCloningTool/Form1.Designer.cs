@@ -38,6 +38,10 @@
             this.folderPathBox = new System.Windows.Forms.TextBox();
             this.unzipCheckBox = new System.Windows.Forms.CheckBox();
             this.settingsBtn = new System.Windows.Forms.Button();
+            this.testRunsGridView = new System.Windows.Forms.DataGridView();
+            this.downloadAllBtn = new System.Windows.Forms.Button();
+            this.consoleBox = new System.Windows.Forms.RichTextBox();
+            ((System.ComponentModel.ISupportInitialize)(this.testRunsGridView)).BeginInit();
             this.SuspendLayout();
             // 
             // loadRunsBtn
@@ -134,11 +138,41 @@
             this.settingsBtn.UseVisualStyleBackColor = true;
             this.settingsBtn.Click += new System.EventHandler(this.settingsBtn_Click);
             // 
+            // testRunsGridView
+            // 
+            this.testRunsGridView.ColumnHeadersHeightSizeMode = System.Windows.Forms.DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            this.testRunsGridView.Location = new System.Drawing.Point(12, 379);
+            this.testRunsGridView.Name = "testRunsGridView";
+            this.testRunsGridView.Size = new System.Drawing.Size(435, 229);
+            this.testRunsGridView.TabIndex = 11;
+            this.testRunsGridView.Visible = false;
+            // 
+            // downloadAllBtn
+            // 
+            this.downloadAllBtn.Location = new System.Drawing.Point(468, 156);
+            this.downloadAllBtn.Name = "downloadAllBtn";
+            this.downloadAllBtn.Size = new System.Drawing.Size(121, 28);
+            this.downloadAllBtn.TabIndex = 12;
+            this.downloadAllBtn.Text = "Download All";
+            this.downloadAllBtn.UseVisualStyleBackColor = true;
+            this.downloadAllBtn.Click += new System.EventHandler(this.downloadAllBtn_Click);
+            // 
+            // consoleBox
+            // 
+            this.consoleBox.Location = new System.Drawing.Point(12, 378);
+            this.consoleBox.Name = "consoleBox";
+            this.consoleBox.Size = new System.Drawing.Size(435, 88);
+            this.consoleBox.TabIndex = 13;
+            this.consoleBox.Text = "";
+            // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(600, 388);
+            this.ClientSize = new System.Drawing.Size(600, 643);
+            this.Controls.Add(this.consoleBox);
+            this.Controls.Add(this.downloadAllBtn);
+            this.Controls.Add(this.testRunsGridView);
             this.Controls.Add(this.settingsBtn);
             this.Controls.Add(this.unzipCheckBox);
             this.Controls.Add(this.folderPathBox);
@@ -151,6 +185,7 @@
             this.Margin = new System.Windows.Forms.Padding(2);
             this.Name = "Form1";
             this.Text = "Cloning Tool";
+            ((System.ComponentModel.ISupportInitialize)(this.testRunsGridView)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -168,6 +203,9 @@
         private System.Windows.Forms.Button folderDialogBtn;
         private System.Windows.Forms.CheckBox unzipCheckBox;
         private System.Windows.Forms.Button settingsBtn;
+        private System.Windows.Forms.DataGridView testRunsGridView;
+        private System.Windows.Forms.Button downloadAllBtn;
+        private System.Windows.Forms.RichTextBox consoleBox;
     }
 }
 
