@@ -32,6 +32,11 @@ namespace PCRunCloningTool
         private DataSet runsDataSet = new DataSet();
         private DataSet foldersDataSet = new DataSet();
 
+        static int workingCounter = 0;
+        static int workingLimit = 10;
+        static int processedCounter = 0;
+
+
         static Form1() {
             handler.CookieContainer = cookies;
             client = new HttpClient(handler);
@@ -58,7 +63,7 @@ namespace PCRunCloningTool
             
             if (unzipCheckBox.Checked)
             {
-                CopyRuns(list);
+                CopyRuns2(list);
             }
         }
 
@@ -69,7 +74,7 @@ namespace PCRunCloningTool
             {
                 result.Add(row["RN_RUN_ID"].ToString());
             }
-            CopyRuns(result);
+            CopyRuns2(result);
         }
 
         private async void CopyRuns(List<string> runs)
@@ -96,6 +101,73 @@ namespace PCRunCloningTool
                     }
             }
         }
+
+
+        private async void CopyRunupd(object runID)
+        {
+            try
+            {
+                string strrunID = Convert.ToString(runID);
+                if (!IsRunFinished(strrunID))
+                {
+                    Logs("Run ID: " + strrunID + " is not Finished");
+                }
+                else
+                if (!DbManager.RunExist(strrunID, DOMAIN, PROJECT))
+                {
+                    await CopyRun(strrunID);
+                }
+                else
+                {
+                    Logs("Run is copied. ID: " + runID);
+                    Console.WriteLine("Run is already in DB. ID: " + runID);
+                }
+            }
+            catch (Exception ex)
+            {
+                //handle your exception...
+                string exMsg = ex.Message;
+            }
+            finally
+            {
+                Interlocked.Decrement(ref workingCounter);
+                Interlocked.Increment(ref processedCounter);
+            }
+
+        }
+
+        private async void CopyRuns2(List<string> runs)
+        {
+
+            if (!DbManager.CheckDatabaseExistsMSSQL(GlobalSettings.GetConnectionStringWithoutDB(), GlobalSettings.msSqlDatabaseNameCustom))
+                MessageBox.Show("Database does not exist: " + GlobalSettings.msSqlDatabaseNameCustom);
+            else
+            {
+                int checkCount = runs.Count;
+                foreach (string runID in runs)
+                {
+
+                    while (workingCounter >= workingLimit)
+                    {
+                        Thread.Sleep(100);
+                    }
+
+                    workingCounter += 1;
+                    ParameterizedThreadStart pts = new ParameterizedThreadStart(CopyRunupd);
+                    Thread th = new Thread(pts);
+                    th.Start(runID);
+
+                }
+                while (processedCounter < checkCount)
+                {
+                    Thread.Sleep(100);
+                }
+                Console.WriteLine("Work completed!");
+            }
+        }
+
+
+
 
         private void Logs(string message)
         {
