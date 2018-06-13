@@ -36,9 +36,10 @@ namespace PCRunCloningTool
                 CopyMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, runID);
                 CopySiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, runID);
                 CopyRun(runID, domain, project);
-                TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), aspNetStatSQL);
-                TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), dbStatSQL);
-                TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), serverStatSQL);
+                CopyRunFolders(domain, project);
+                TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), AspNetStat_SQL());
+                TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), DbStat_SQL());
+                TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), ServerStat_SQL());
                 Directory.Delete(location, true);
             }
         }
@@ -49,6 +50,20 @@ namespace PCRunCloningTool
                             SELECT *
                             FROM [" + GlobalSettings.msSqlDatabaseNameCustom + @"].[dbo].[TestRuns]
                             WHERE [RN_RUN_ID] = " + runID;
+            return HasRowsInCustomDB(sql);
+        }
+
+        private static bool RunFoldersExist(string domain, string project)
+        {
+            string sql = String.Format(@"
+                            SELECT *
+                            FROM [" + GlobalSettings.msSqlDatabaseNameCustom + @"].[dbo].[ALL_LISTS]
+                            WHERE [DOMAIN] = '{0}' AND [PROJECT] = '{1}'", domain, project);
+            return HasRowsInCustomDB(sql); 
+        }
+
+        private static bool HasRowsInCustomDB(string sql)
+        {
             using (var targeDB = new SqlConnection(GlobalSettings.GetConnectionStringCustomDB()))
             using (SqlCommand command = new SqlCommand(sql, targeDB))
             {
@@ -57,36 +72,10 @@ namespace PCRunCloningTool
                 return reader.HasRows;
             }
         }
+
         private static void CopyRun(string runID, string domain, string project)
         {
-            string runFromPcDbSQL = @"
-                        SELECT   '{0}' as DOMAIN
-                                ,'{1}' as PROJECT
-                                ,[RN_TEST_ID]
-                                ,[RN_TEST_CONFIG_ID]
-                                ,[RN_RUN_ID]
-                                ,[RN_RUN_NAME]
-                                ,[RN_EXECUTION_DATE]
-                                ,[RN_EXECUTION_TIME]
-                                ,[RN_DURATION]
-                                ,[RN_STATE]
-                                ,[RN_PC_START_TIME]
-                                ,[RN_PC_END_TIME]
-                                ,[RN_PC_CONTROLLER_NAME]
-                                ,[RN_PC_LOAD_GENERATORS]
-                                ,[RN_PC_VUSERS_INVOLVED]
-                                ,[RN_PC_VUSERS_MAX]
-                                ,[RN_PC_VUSERS_AVERAGE]
-                                ,[RN_PC_TOTAL_TRANSACT_PASSED]
-                                ,[RN_PC_TOTAL_TRANSACT_FAILED]
-                                ,[RN_PC_TOTAL_ERRORS]
-                                ,[RN_PC_HITS_SEC_AVERAGE]
-                                ,[RN_PC_THROUGHPUT_AVERAGE]
-                                ,[RN_PC_TRANSACT_SEC_AVERAGE]
-                          FROM [{0}_{1}_db].[td].[RUN]
-                          WHERE [RN_RUN_ID] = " + runID;
-
-            string sql = String.Format(runFromPcDbSQL, domain, project);
+            string sql = RunByIdFromPcDB_SQL(domain, project, runID);
             using (var sourceDB = new SqlConnection(GlobalSettings.GetConnectionStringPCDB()))
             using (SqlCommand command = new SqlCommand(sql, sourceDB))
             {
@@ -100,6 +89,7 @@ namespace PCRunCloningTool
                         bulkCopy.ColumnMappings.Add("DOMAIN", "DOMAIN");
                         bulkCopy.ColumnMappings.Add("PROJECT", "PROJECT");
                         bulkCopy.ColumnMappings.Add("RN_TEST_ID", "RN_TEST_ID");
+                        bulkCopy.ColumnMappings.Add("TS_SUBJECT", "TS_SUBJECT");
                         bulkCopy.ColumnMappings.Add("RN_TEST_CONFIG_ID", "RN_TEST_CONFIG_ID");
                         bulkCopy.ColumnMappings.Add("RN_RUN_ID", "RN_RUN_ID");
                         bulkCopy.ColumnMappings.Add("RN_RUN_NAME", "RN_RUN_NAME");
@@ -138,78 +128,44 @@ namespace PCRunCloningTool
             }
         }
 
-
-        private static void CopyNewRuns(string runID, string domain, string project)
+        private static void CopyRunFolders(string domain, string project)
         {
-            string copiedRunsMyDB_SQL = "SELECT [RN_RUN_ID] FROM PCAnalysisDashboard.dbo.TestRuns";
-            var runIdFromMyDBList = new List<string>();
+            if (RunFoldersExist(domain, project)) return;
 
-
-            using (var myDB = new SqlConnection(GlobalSettings.GetConnectionStringCustomDB()))
+            string sql = RunFoldersPCDB_SQL(domain, project);
+            using (var sourceDB = new SqlConnection(GlobalSettings.GetConnectionStringPCDB()))
+            using (SqlCommand command = new SqlCommand(sql, sourceDB))
             {
-                myDB.Open();
-                using (SqlCommand command = new SqlCommand(copiedRunsMyDB_SQL, myDB))
-                using (var result = command.ExecuteReader())
+                sourceDB.Open();
+                var reader = command.ExecuteReader();
+                using (var destinationdestinationDB = new SqlConnection(GlobalSettings.GetConnectionStringCustomDB()))
                 {
-                    while (result.Read())
+                    destinationdestinationDB.Open();
+                    using (var bulkCopy = new SqlBulkCopy(destinationdestinationDB))
                     {
-                        runIdFromMyDBList.Add(result["RN_RUN_ID"].ToString());
-                    }
-                }
-                //asdsad
-                string sql = String.Format(copyRunsFromPCDB, domain, project) +
-                        "WHERE [RN_RUN_ID] not in (" + String.Join(",", runIdFromMyDBList.ToArray()) + ")";
+                        bulkCopy.ColumnMappings.Add("DOMAIN", "DOMAIN");
+                        bulkCopy.ColumnMappings.Add("PROJECT", "PROJECT");
+                        bulkCopy.ColumnMappings.Add("AL_ITEM_ID", "AL_ITEM_ID");
+                        bulkCopy.ColumnMappings.Add("AL_FATHER_ID", "AL_FATHER_ID");
+                        bulkCopy.ColumnMappings.Add("AL_DESCRIPTION", "AL_DESCRIPTION");
 
-                using (SqlCommand command = new SqlCommand(copiedRunsMyDB_SQL, myDB))
-                using (var result = command.ExecuteReader())
-                {
-                    using (var destinationdestinationDB = new SqlConnection(GlobalSettings.GetConnectionStringCustomDB()))
-                    {
-                        destinationdestinationDB.Open();
-                        using (var bulkCopy = new SqlBulkCopy(destinationdestinationDB))
+                        bulkCopy.DestinationTableName = "PCAnalysisDashboard.dbo.ALL_LISTS";
+                        try
                         {
-                            bulkCopy.ColumnMappings.Add("DOMAIN", "DOMAIN");
-                            bulkCopy.ColumnMappings.Add("PROJECT", "PROJECT");
-                            bulkCopy.ColumnMappings.Add("RN_TEST_ID", "RN_TEST_ID");
-                            bulkCopy.ColumnMappings.Add("RN_TEST_CONFIG_ID", "RN_TEST_CONFIG_ID");
-                            bulkCopy.ColumnMappings.Add("RN_RUN_ID", "RN_RUN_ID");
-                            bulkCopy.ColumnMappings.Add("RN_RUN_NAME", "RN_RUN_NAME");
-                            bulkCopy.ColumnMappings.Add("RN_EXECUTION_DATE", "RN_EXECUTION_DATE");
-                            bulkCopy.ColumnMappings.Add("RN_EXECUTION_TIME", "RN_EXECUTION_TIME");
-                            bulkCopy.ColumnMappings.Add("RN_DURATION", "RN_DURATION");
-                            bulkCopy.ColumnMappings.Add("RN_STATE", "RN_STATE");
-                            bulkCopy.ColumnMappings.Add("RN_PC_START_TIME", "RN_PC_START_TIME");
-                            bulkCopy.ColumnMappings.Add("RN_PC_END_TIME", "RN_PC_END_TIME");
-                            bulkCopy.ColumnMappings.Add("RN_PC_CONTROLLER_NAME", "RN_PC_CONTROLLER_NAME");
-                            bulkCopy.ColumnMappings.Add("RN_PC_LOAD_GENERATORS", "RN_PC_LOAD_GENERATORS");
-                            bulkCopy.ColumnMappings.Add("RN_PC_VUSERS_INVOLVED", "RN_PC_VUSERS_INVOLVED");
-                            bulkCopy.ColumnMappings.Add("RN_PC_VUSERS_MAX", "RN_PC_VUSERS_MAX");
-                            bulkCopy.ColumnMappings.Add("RN_PC_VUSERS_AVERAGE", "RN_PC_VUSERS_AVERAGE");
-                            bulkCopy.ColumnMappings.Add("RN_PC_TOTAL_TRANSACT_PASSED", "RN_PC_TOTAL_TRANSACT_PASSED");
-                            bulkCopy.ColumnMappings.Add("RN_PC_TOTAL_TRANSACT_FAILED", "RN_PC_TOTAL_TRANSACT_FAILED");
-                            bulkCopy.ColumnMappings.Add("RN_PC_TOTAL_ERRORS", "RN_PC_TOTAL_ERRORS");
-                            bulkCopy.ColumnMappings.Add("RN_PC_HITS_SEC_AVERAGE", "RN_PC_HITS_SEC_AVERAGE");
-                            bulkCopy.ColumnMappings.Add("RN_PC_THROUGHPUT_AVERAGE", "RN_PC_THROUGHPUT_AVERAGE");
-                            bulkCopy.ColumnMappings.Add("RN_PC_TRANSACT_SEC_AVERAGE", "RN_PC_TRANSACT_SEC_AVERAGE");
-                            bulkCopy.DestinationTableName = "PCAnalysisDashboard.dbo.TestRuns";
-                            try
-                            {
-                                bulkCopy.WriteToServer(result);
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine(ex.Message);
-                            }
-                            finally
-                            {
-                                result.Close();
-                            }
+                            bulkCopy.WriteToServer(reader);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine(ex.Message);
+                        }
+                        finally
+                        {
+                            reader.Close();
                         }
                     }
                 }
             }
         }
-
 
         private static void CopyMetrics(string connectionString, string accessDbFilePath, string runID)
         {
@@ -219,7 +175,7 @@ namespace PCRunCloningTool
             {
                 sourceConnection.Open();
 
-                var commandSourceData = new OleDbCommand(String.Format(copyMetricsSQL, runID), sourceConnection);
+                var commandSourceData = new OleDbCommand(CopyMetrics_SQL(runID), sourceConnection);
                 var reader = commandSourceData.ExecuteReader();
 
                 using (var destinationConnection = new SqlConnection(connectionString))
@@ -260,7 +216,7 @@ namespace PCRunCloningTool
             {
                 sourceConnection.Open();
 
-                var commandSourceData = new OleDbCommand(String.Format(siteScopeMetricsSQL, runID), sourceConnection);
+                var commandSourceData = new OleDbCommand(SiteScopeMetrics_SQL(runID), sourceConnection);
                 var reader = commandSourceData.ExecuteReader();
 
                 using (var destinationConnection = new SqlConnection(connectionString))
@@ -338,22 +294,22 @@ namespace PCRunCloningTool
 
         private static void DropDB()
         {
-            ExecuteCommand(GlobalSettings.GetConnectionStringWithoutDB(), dropDbSQL);
+            ExecuteCommand(GlobalSettings.GetConnectionStringWithoutDB(), DropDb_SQL());
         }
         private static void CreateDB()
         {
-            ExecuteCommand(GlobalSettings.GetConnectionStringWithoutDB(), createDbSQL);
+            ExecuteCommand(GlobalSettings.GetConnectionStringWithoutDB(), CreateDb_SQL());
         }
 
         private static void CreateDbModel()
         {
-            ExecuteCommand(GlobalSettings.GetConnectionStringCustomDB(), createModelSQL);
+            ExecuteCommand(GlobalSettings.GetConnectionStringCustomDB(), CreateModel_SQL());
         }
 
         private static void CreateDbFuntions()
         {
-            ExecuteCommand(GlobalSettings.GetConnectionStringCustomDB(), createFunctionIDSQL);
-            ExecuteCommand(GlobalSettings.GetConnectionStringCustomDB(), createFunctionNISQL);
+            ExecuteCommand(GlobalSettings.GetConnectionStringCustomDB(), CreateFunctionID_SQL());
+            ExecuteCommand(GlobalSettings.GetConnectionStringCustomDB(), CreateFunctionNI_SQL());
         }
 
         public static bool CheckDatabaseExistsMSSQL(string connectionString, string databaseName)
@@ -366,52 +322,17 @@ namespace PCRunCloningTool
                     return (command.ExecuteScalar() != DBNull.Value);
                 }
             }
-        }
-                
+        }       
+
         public static List<string> LoadDomains()
         {
             string sql = "Select [DOMAIN_NAME] From [pcsiteadmin_db].[td].[DOMAINS]";
             return ExecuteDataRequest(sql, GlobalSettings.GetConnectionStringPCDB());
         }
-
         public static List<string> LoadProjects(string domain)
         {
             string sql = "Select [PROJECT_NAME] From [pcsiteadmin_db].[td].[PROJECTS] WHERE [DOMAIN_NAME] LIKE '" + domain + "'";
             return ExecuteDataRequest(sql, GlobalSettings.GetConnectionStringPCDB());
-        }
-
-        public static List<Run> LoadRuns(string domain, string project)
-        {
-            string sql = String.Format(runsFromPcDbSQL, domain, project);
-
-            List<Run> result = null;
-            using (var connection = new SqlConnection(GlobalSettings.GetConnectionStringPCDB()))
-            {
-                connection.Open();
-                using (SqlCommand command = new SqlCommand(sql, connection))
-                {
-                    SqlDataReader dataReader = command.ExecuteReader();
-
-                    result = new List<Run>();
-                    while (dataReader.Read())
-                    {
-                        result.Add(
-                            new Run (
-                                    dataReader.GetValue(0).ToString(),
-                                    dataReader.GetValue(1).ToString(),
-                                    dataReader.GetValue(2).ToString(),
-                                    dataReader.GetValue(3).ToString(),
-                                    dataReader.GetValue(4).ToString(),
-                                    dataReader.GetValue(5).ToString(),
-                                    dataReader.GetValue(6).ToString(),
-                                    dataReader.GetValue(7).ToString()
-                                )
-                            );
-                    }
-                    dataReader.Close();
-                }
-            }
-            return result;
         }
 
         private static void ExecuteCommand(string connectionString, string SQL)
@@ -425,6 +346,7 @@ namespace PCRunCloningTool
                 }
             }
         }
+
         private static List<string> ExecuteDataRequest(string sql, string connetionString)
         {
             List<string> result = null;
@@ -446,15 +368,41 @@ namespace PCRunCloningTool
             return result;
         }
 
-        public static void LoadRunsFromDB(DataSet dataSet, string member, string domain, string project)
+        public static void LoadRunsFromDB(DataSet dataSet, string member, string domain, string project, string parrentFolderIDs)
         {
-            LoadRunsFromDB(
-                GlobalSettings.GetConnectionStringPCDB(), 
-                String.Format(runsFromPcDbSQL, domain, project), 
-                dataSet, 
-                member);
+            string where = "";
+            if (!String.IsNullOrEmpty(parrentFolderIDs))
+                where = String.Format("WHERE [TS_SUBJECT] in ({0})", parrentFolderIDs);
+
+            LoadDataSetFromDB(
+                dataSet,
+                member,
+                GlobalSettings.GetConnectionStringPCDB(),
+                RunsFromPcDB_SQL(domain, project) + where
+                );
         }
-        private static void LoadRunsFromDB(string connectionString, string sql, DataSet dataSet, string member)
+
+        public static void GetFolderStructure(DataSet data, string member, string domain, string project)
+        {
+            LoadDataSetFromDB(
+                data,
+                member,
+                GlobalSettings.GetConnectionStringCustomDB(),
+                RunFoldersCustomDB_SQL(domain, project)
+            );
+            if (data.Tables[member].Rows.Count == 0)
+            {
+                CopyRunFolders(domain, project);
+                LoadDataSetFromDB(
+                    data,
+                    member,
+                    GlobalSettings.GetConnectionStringCustomDB(),
+                    RunFoldersCustomDB_SQL(domain, project)
+                );
+            }
+        }
+
+        private static void LoadDataSetFromDB(DataSet dataSet, string member, string connectionString, string sql)
         {
             using (var connection = new SqlConnection(connectionString))
             {
@@ -464,7 +412,13 @@ namespace PCRunCloningTool
             }
         }
 
-        private static string siteScopeMetricsSQL = @"
+        /*********************************************/
+        /***************  SQL Partion ****************/
+        /*********************************************/
+
+        private static string SiteScopeMetrics_SQL(string runID)
+        {
+            return String.Format(@"
                         SELECT
                             '{0}' as [RunID]
 	                        ,evmp.[Event Name]
@@ -477,17 +431,21 @@ namespace PCRunCloningTool
                         INNER JOIN [Event_map] evmp on monmr.[Event ID]=evmp.[Event ID] 
                         WHERE evmp.[Event Name] not like '%countersInError%' and evmp.[Event Type]='SiteScope' 
                         GROUP BY evmp.[Event Name],evmp.[Event Type],Int([End Time]/60)
-                    ";
+                    ", runID);
+        }
 
-        private static string copyRunsFromPCDB = @"
+        private static string RunByIdFromPcDB_SQL(string domain, string project, string runID)
+        {
+            return String.Format(@"
                         SELECT   '{0}' as DOMAIN
                                 ,'{1}' as PROJECT
                                 ,[RN_TEST_ID]
+                                ,[TS_SUBJECT]
                                 ,[RN_TEST_CONFIG_ID]
                                 ,[RN_RUN_ID]
                                 ,[RN_RUN_NAME]
                                 ,[RN_EXECUTION_DATE]
-                                ,[RN_EXECUTION_TIME
+                                ,[RN_EXECUTION_TIME]
                                 ,[RN_DURATION]
                                 ,[RN_STATE]
                                 ,[RN_PC_START_TIME]
@@ -503,22 +461,66 @@ namespace PCRunCloningTool
                                 ,[RN_PC_HITS_SEC_AVERAGE]
                                 ,[RN_PC_THROUGHPUT_AVERAGE]
                                 ,[RN_PC_TRANSACT_SEC_AVERAGE]
-                          FROM [{0}_{1}_db].[td].[RUN]
-                    ";
+                          FROM 
+                            [{0}_{1}_db].[td].[RUN] INNER JOIN [{0}_{1}_db].[td].[TEST] ON [RN_TEST_ID] = [TS_TEST_ID]
+                          WHERE 
+                            [RN_RUN_ID] = {2}
+                        ", domain, project, runID);
+        }
 
-        
 
-        private static string dropDbSQL = @"
+        private static string RunsFromPcDB_SQL(string domain, string project)
+        {
+            return String.Format(@"
+                        SELECT   '{0}' as DOMAIN
+                                ,'{1}' as PROJECT
+                                ,[RN_TEST_ID]
+                                ,[TS_SUBJECT]
+                                ,[RN_TEST_CONFIG_ID]
+                                ,[RN_RUN_ID]
+                                ,[RN_RUN_NAME]
+                                ,[RN_EXECUTION_DATE]
+                                ,[RN_EXECUTION_TIME]
+                                ,[RN_DURATION]
+                                ,[RN_STATE]
+                                ,[RN_PC_START_TIME]
+                                ,[RN_PC_END_TIME]
+                                ,[RN_PC_CONTROLLER_NAME]
+                                ,[RN_PC_LOAD_GENERATORS]
+                                ,[RN_PC_VUSERS_INVOLVED]
+                                ,[RN_PC_VUSERS_MAX]
+                                ,[RN_PC_VUSERS_AVERAGE]
+                                ,[RN_PC_TOTAL_TRANSACT_PASSED]
+                                ,[RN_PC_TOTAL_TRANSACT_FAILED]
+                                ,[RN_PC_TOTAL_ERRORS]
+                                ,[RN_PC_HITS_SEC_AVERAGE]
+                                ,[RN_PC_THROUGHPUT_AVERAGE]
+                                ,[RN_PC_TRANSACT_SEC_AVERAGE]
+                          FROM 
+                            [{0}_{1}_db].[td].[RUN] INNER JOIN [{0}_{1}_db].[td].[TEST] ON [RN_TEST_ID] = [TS_TEST_ID]
+                    ", domain, project);
+        }
+
+
+        private static string DropDb_SQL()
+        {
+            return @"
                 If(db_id(N'PCAnalysisDashboard') IS NOT NULL) 
 	                    drop database PCAnalysisDashboard;
                 ";
+        }
 
-        private static string createDbSQL = @"
+        private static string CreateDb_SQL()
+        {
+            return @"
                 If(db_id(N'PCAnalysisDashboard') IS NULL)
 	                create database PCAnalysisDashboard;
                 ";
+        }
 
-        private static string createFunctionIDSQL = @"
+        private static string CreateFunctionID_SQL()
+        {
+            return @"
                 CREATE FUNCTION [dbo].[fnIndexdiff]
                                (@Input     VARCHAR(8000),
                                 @Delimiter1 CHAR(5),
@@ -537,8 +539,11 @@ namespace PCRunCloningTool
                     RETURN @Noofchars-1
                   END
                 ";
+        }
 
-        private static string createFunctionNISQL = @"
+        private static string CreateFunctionNI_SQL()
+        {
+            return @"
                 CREATE FUNCTION [dbo].[fnNthIndex]
                                (@Input     VARCHAR(8000),
                                 @Delimiter CHAR(1),
@@ -568,8 +573,11 @@ namespace PCRunCloningTool
                     RETURN @Last+1
                   END
                 ";
+        }
 
-        private static string createModelSQL = @"
+        private static string CreateModel_SQL()
+        {
+            return @"
                 BEGIN TRANSACTION
                 CREATE TABLE PCAnalysisDashboard.dbo.TestRuns
                     (
@@ -577,6 +585,7 @@ namespace PCRunCloningTool
                     DOMAIN varchar(50) NOT NULL,
                     PROJECT varchar(50) NOT NULL,
 				    RN_TEST_ID int,
+                    TS_SUBJECT int,
                     RN_TEST_CONFIG_ID int,
                     RN_RUN_ID int NOT NULL,
                     RN_RUN_NAME varchar(255),
@@ -664,9 +673,23 @@ namespace PCRunCloningTool
 	                ID
 	                ) WITH( STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
                 COMMIT
-                ";
 
-        private static readonly String copyMetricsSQL = @"
+                BEGIN TRANSACTION
+                CREATE TABLE PCAnalysisDashboard.dbo.ALL_LISTS
+	                (
+                    DOMAIN varchar(50) NOT NULL,
+                    PROJECT varchar(50) NOT NULL,
+	                AL_ITEM_ID int NOT NULL,
+	                AL_FATHER_ID int NOT NULL,
+	                AL_DESCRIPTION varchar(255)
+	                )  ON [PRIMARY]
+                COMMIT
+                ";
+        }
+
+        private static string CopyMetrics_SQL(string runID)
+        {
+            return String.Format(@"
                      SELECT 
 	                    '{0}' as [RunID]
 	                    ,'Response Time' as [Metric] 
@@ -713,9 +736,12 @@ namespace PCRunCloningTool
 	                    WHERE [Vuser Status ID]=2 
 	                    GROUP BY itbl.[End Time] 
 	                    ) otbl 
-                ";
+                ", runID);
+        }
 
-        private static string aspNetStatSQL = @"
+        private static string AspNetStat_SQL()
+        {
+            return @"
                     /**********  ASP .NET Stats ******************/
                     SELECT
                         [runID]
@@ -774,8 +800,11 @@ namespace PCRunCloningTool
 	                    ,[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5)
 	                    ,[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6)) in ('Processstats','Webservicestats','APPpool_Wpstats','NETAPPstats','NETCLRStats','ASPNETstats')
                 ";
+        }
 
-        private static string dbStatSQL = @"
+        private static string DbStat_SQL()
+        {
+            return @"
                     select [runID]
                     ,'Database' as [StatType]
                     ,'TYPE'=SUBSTRING(datatbl.[Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',2),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',2,3))  
@@ -809,8 +838,11 @@ namespace PCRunCloningTool
                     ) datatbl
                     where SUBSTRING(datatbl.[Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))= 'SQLStats'
                 ";
+        }
 
-        private static string serverStatSQL = @"
+        private static string ServerStat_SQL()
+        {
+            return @"
                     select [runID]
                     ,'Server' as [StatType]
                     ,'TYPE'=SUBSTRING(datatbl.[Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',2),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',2,3))  
@@ -843,67 +875,33 @@ namespace PCRunCloningTool
                     ) datatbl
                     where  SUBSTRING(datatbl.[Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))= 'ServerStats'
                 ";
+        }
 
-        private static string runsFromPcDbSQL = @"
-                        SELECT [RN_TEST_ID]
-                              ,[RN_TEST_CONFIG_ID]
-                              ,[RN_RUN_ID]
-                              ,[RN_RUN_NAME]
-                              ,[RN_EXECUTION_DATE]
-                              ,[RN_EXECUTION_TIME]
-
-                              ,[RN_DURATION]
- 
-                              ,[RN_STATE]
-
-                              ,[RN_PC_START_TIME]
-                              ,[RN_PC_END_TIME]
-
-                              ,[RN_PC_CONTROLLER_NAME]
-                              ,[RN_PC_LOAD_GENERATORS]
-                              ,[RN_PC_VUSERS_INVOLVED]
-                              ,[RN_PC_VUSERS_MAX]
-                              ,[RN_PC_VUSERS_AVERAGE]
-
-                              ,[RN_PC_TOTAL_TRANSACT_PASSED]
-                              ,[RN_PC_TOTAL_TRANSACT_FAILED]
-                              ,[RN_PC_TOTAL_ERRORS]
-                              ,[RN_PC_HITS_SEC_AVERAGE]
-                              ,[RN_PC_THROUGHPUT_AVERAGE]
-                              ,[RN_PC_TRANSACT_SEC_AVERAGE]
-                          FROM [{0}_{1}_db].[td].[RUN]
-                    ";
-    }
-
-    public class Run
-    {
-        public string RN_RUN_ID;
-        public string RN_RUN_NAME;
-        public string RN_EXECUTION_DATE;
-        public string RN_EXECUTION_TIME;
-        public string RN_STATE;
-        public string RN_PC_START_TIME;
-        public string RN_PC_END_TIME;
-        public string RN_PC_RESERVATION_ID;
-
-        public Run(
-                string RN_RUN_ID,
-                string RN_RUN_NAME,
-                string RN_EXECUTION_DATE,
-                string RN_EXECUTION_TIME,
-                string RN_STATE,
-                string RN_PC_START_TIME,
-                string RN_PC_END_TIME,
-                string RN_PC_RESERVATION_ID)
+        private static string RunFoldersPCDB_SQL(string domain, string project)
         {
-            this.RN_RUN_ID = RN_RUN_ID;
-            this.RN_RUN_NAME = RN_RUN_NAME;
-            this.RN_EXECUTION_DATE = RN_EXECUTION_DATE;
-            this.RN_EXECUTION_TIME = RN_EXECUTION_TIME;
-            this.RN_STATE = RN_STATE;
-            this.RN_PC_START_TIME = RN_PC_START_TIME;
-            this.RN_PC_END_TIME = RN_PC_END_TIME;
-            this.RN_PC_RESERVATION_ID = RN_PC_RESERVATION_ID;
+            return String.Format(@"
+                        SELECT
+                             '{0}' as DOMAIN
+                            ,'{1}' as PROJECT
+                            ,[AL_ITEM_ID]
+                            ,[AL_FATHER_ID]
+                            ,[AL_DESCRIPTION]
+                        FROM [{0}_{1}_db].[td].[ALL_LISTS]
+                    ", domain, project);
+        }
+
+        private static string RunFoldersCustomDB_SQL(string domain, string project)
+        {
+            return String.Format(@"
+                        SELECT
+                             [DOMAIN]
+                            ,[PROJECT]
+                            ,[AL_ITEM_ID]
+                            ,[AL_FATHER_ID]
+                            ,[AL_DESCRIPTION]
+                        FROM [PCAnalysisDashboard].[dbo].[ALL_LISTS]
+                        WHERE [DOMAIN] = '{0}' AND [PROJECT] = '{1}'
+                    ", domain, project);
         }
     }
 }

@@ -8,6 +8,7 @@ using System.Net.Http;
 using System.Net;
 using System.Xml.Linq;
 using System.IO;
+using System.Threading;
 
 namespace PCRunCloningTool
 {
@@ -26,8 +27,10 @@ namespace PCRunCloningTool
         private static readonly HttpClientHandler handler = new HttpClientHandler();
         private static readonly HttpClient client = null;
         private static readonly String RUN_TABLE_NAME = "TestRuns";
+        private static readonly String FOLDERS_TABLE_NAME = "Folders";
         private static readonly String RUN_STATE_FINISHED = "Finished";
         private DataSet runsDataSet = new DataSet();
+        private DataSet foldersDataSet = new DataSet();
 
         static Form1() {
             handler.CookieContainer = cookies;
@@ -78,16 +81,13 @@ namespace PCRunCloningTool
                 foreach (string runID in runs)
                     if (!IsRunFinished(runID))
                     {
-                        // MessageBox.Show("Run ID: " + runID + " is not Finished");
                         Logs("Run ID: " + runID + " is not Finished");
                         continue;
                     }
                     else
                     if (!DbManager.RunExist(runID, DOMAIN, PROJECT))
                     {
-                        //Logs("Copying run. ID: " + runID);
-                        //Console.WriteLine("Copying run. ID: " + runID);
-                        CopyRun(runID);
+                        await CopyRun(runID);
                     }
                     else
                     {
@@ -118,11 +118,6 @@ namespace PCRunCloningTool
             
         }
 
-        private void pcDbConnectBtn_Click(object sender, EventArgs e)
-        {
-            loadDomains();
-        }
-
         private void domainComBox_SelectedIndexChanged(object sender, EventArgs e)
         {
             DOMAIN = domainComBox.Text;
@@ -132,12 +127,54 @@ namespace PCRunCloningTool
                 loadProjects(DOMAIN);
                 projectComBox.Enabled = true;
             }
+            DisableComboBoxes(firstLevelFolderComBox, secondLevelFolderComBox, threeLevelFolderComBox, fourLevelFolderComBox);
+            DisableComboBoxLabels(labelProduct, labelRelease, labelVersion, labelSubVersion);
         }
 
         private void projectComBox_SelectedIndexChanged(object sender, EventArgs e)
         {
             checkedListBox1.Items.Clear();
             PROJECT = projectComBox.Text;
+            firstLevelFolderComBox.Enabled = true;
+
+            foldersDataSet.Clear();
+            DbManager.GetFolderStructure(foldersDataSet, FOLDERS_TABLE_NAME, DOMAIN, PROJECT);
+            FillFirstLevelFolderComBox(foldersDataSet, FOLDERS_TABLE_NAME);
+            DisableComboBoxes(secondLevelFolderComBox, threeLevelFolderComBox, fourLevelFolderComBox);
+            DisableComboBoxLabels(labelRelease, labelVersion, labelSubVersion);
+        }
+
+        private void firstLevelFolderComBox_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            FillSecondLevelFolderComBox(foldersDataSet, FOLDERS_TABLE_NAME, GetFolderID(firstLevelFolderComBox.Text));
+            DisableComboBoxes(threeLevelFolderComBox, fourLevelFolderComBox);
+            DisableComboBoxLabels(labelVersion, labelSubVersion);
+        }
+
+        private void secondLevelFolderComBox_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            FillThreeLevelFolderComBox(foldersDataSet, FOLDERS_TABLE_NAME, GetFolderID(secondLevelFolderComBox.Text));
+            DisableComboBoxes(fourLevelFolderComBox);
+            DisableComboBoxLabels(labelSubVersion);
+        }
+
+        private void DisableComboBoxes(params ComboBox [] comboBoxes)
+        {
+            foreach (ComboBox box in comboBoxes)
+            {
+                box.Items.Clear();
+                box.Text = "";
+                box.Enabled = false;
+                box.Visible = false;
+            }
+        }
+
+        private void DisableComboBoxLabels(params Label [] labels)
+        {
+            foreach (Label label in labels)
+            {
+                label.Visible = false;
+            }
         }
 
         private void folderDialogBtn_Click(object sender, EventArgs e)
@@ -153,18 +190,100 @@ namespace PCRunCloningTool
             new SettingsForm().Show();
         }
 
-        private void btnLogin_Click(object sender, EventArgs e)
+        private void loadRunsBtn_Click(object sender, EventArgs e)
         {
             if (String.IsNullOrEmpty(DOMAIN)) { MessageBox.Show("Domain is not selected"); return;}
             if (String.IsNullOrEmpty(PROJECT)) { MessageBox.Show("Project is not selected"); return;}
 
+            string parrentFolderIDs;
+            if (!String.IsNullOrEmpty(fourLevelFolderComBox.Text))
+                parrentFolderIDs = CalcFolderIDs(fourLevelFolderComBox.Text);
+            else if (!String.IsNullOrEmpty(threeLevelFolderComBox.Text))
+                parrentFolderIDs = CalcFolderIDs(threeLevelFolderComBox.Text);
+            else if (!String.IsNullOrEmpty(secondLevelFolderComBox.Text))
+                parrentFolderIDs = CalcFolderIDs(secondLevelFolderComBox.Text);
+            else if (!String.IsNullOrEmpty(firstLevelFolderComBox.Text))
+                parrentFolderIDs = CalcFolderIDs(firstLevelFolderComBox.Text);
+            else
+                parrentFolderIDs = "";
+
             runsDataSet.Clear();
-            DbManager.LoadRunsFromDB(runsDataSet, RUN_TABLE_NAME, DOMAIN, PROJECT);
+            DbManager.LoadRunsFromDB(runsDataSet, RUN_TABLE_NAME, DOMAIN, PROJECT, parrentFolderIDs);
 
             ShowRuns(runsDataSet, RUN_TABLE_NAME);
             
             testRunsGridView.DataSource = runsDataSet;
             testRunsGridView.DataMember = RUN_TABLE_NAME;
+        }
+
+        private string CalcFolderIDs(string rootFolderName)
+        {
+            var rootFolderID = GetFolderID(rootFolderName);
+            LinkedList<string> list = new LinkedList<string>();
+            list.AddFirst(rootFolderID);
+            LinkedListNode<string> node = list.First;
+            while (node != null)
+            {
+                foreach (DataRow row in foldersDataSet.Tables[FOLDERS_TABLE_NAME].Rows) // AL_ITEM_ID, AL_FATHER_ID, AL_DESCRIPTION 
+                {
+                    if (node.Value.Equals(row["AL_FATHER_ID"].ToString()))
+                        list.AddLast(row["AL_ITEM_ID"].ToString());
+                }
+                node = node.Next;
+            }
+
+            // MessageBox.Show(String.Join(",", list.ToArray()));
+            return String.Join(",", list.ToArray());
+        }
+
+        private string GetFolderID(string name)
+        {
+            foreach(DataRow row in foldersDataSet.Tables[FOLDERS_TABLE_NAME].Rows) // AL_ITEM_ID, AL_FATHER_ID, AL_DESCRIPTION
+            {
+                if (name.Equals(row["AL_DESCRIPTION"].ToString()))
+                    return row["AL_ITEM_ID"].ToString();
+            }
+            return "2";
+        }
+
+        private void FillFirstLevelFolderComBox(DataSet data, string member)
+        {
+            FillComBox(firstLevelFolderComBox, labelProduct, data, member, "2");
+        }
+
+        private void FillSecondLevelFolderComBox(DataSet data, string member, string parrentFolderID)
+        {
+            FillComBox(secondLevelFolderComBox, labelRelease, data, member, parrentFolderID);
+        }
+
+        private void FillThreeLevelFolderComBox(DataSet data, string member, string parrentFolderID)
+        {
+            FillComBox(threeLevelFolderComBox, labelVersion, data, member, parrentFolderID);
+        }
+
+        private void FillComBox(ComboBox comboBox, Label label, DataSet data, string member, string parrentFolderID)
+        {
+            if ("0".Equals(parrentFolderID))
+            {
+                DisableComboBoxes(comboBox);
+                DisableComboBoxLabels(label);
+                return;
+            }
+            comboBox.Items.Clear();
+            comboBox.Text = "";
+            comboBox.Items.Add("");
+            foreach (DataRow row in data.Tables[member].Rows)
+            {
+                var folderName = row["AL_DESCRIPTION"].ToString();
+                if (parrentFolderID.Equals(row["AL_FATHER_ID"].ToString()) && !"Scenarios".Equals(folderName) && !"Scripts".Equals(folderName))
+                {
+                    comboBox.Items.Add(folderName);
+                }
+            }
+
+            comboBox.Enabled = comboBox.Items.Count > 1;
+            comboBox.Visible = comboBox.Items.Count > 1;
+            label.Visible = comboBox.Items.Count > 1;
         }
 
         private bool IsRunFinished(string ID)
@@ -181,6 +300,7 @@ namespace PCRunCloningTool
 
         private void ShowRuns(DataSet data, string tableName)
         {
+            checkedListBox1.Items.Clear();
             foreach (DataRow row in data.Tables[tableName].Rows)
             {
                 checkedListBox1.Items.Add(row["RN_RUN_ID"].ToString());
@@ -202,10 +322,9 @@ namespace PCRunCloningTool
             return runIdList;
         }
         
-
-        private void UnzipDownloadedResults(string runID, String reportName)
+        private static void UnzipDownloadedResults(string runID, String reportName)
         {
-            REPORTS_LOCATION = folderPathBox.Text;
+            // REPORTS_LOCATION = folderPathBox.Text;
             string location;
             string filePath;
             location = REPORTS_LOCATION + "/" + DOMAIN + "/" + PROJECT + "/" + runID + "/";
@@ -213,7 +332,6 @@ namespace PCRunCloningTool
             Utils.Unzip(filePath, location + "Reports");
         }
 
-        
         private void loadDomains()
         {
                 foreach (string domain in DbManager.LoadDomains())
@@ -222,12 +340,14 @@ namespace PCRunCloningTool
                 }
         }
 
-        
-
         private void loadProjects(string domain)
         {
             projectComBox.Items.Clear();
             projectComBox.Text = "";
+            firstLevelFolderComBox.Items.Clear();
+            firstLevelFolderComBox.Text = "";
+            secondLevelFolderComBox.Items.Clear();
+            secondLevelFolderComBox.Text = "";
             foreach (string project in DbManager.LoadProjects(domain))
                 projectComBox.Items.Add(project);            
         }
@@ -246,18 +366,16 @@ namespace PCRunCloningTool
             }
         }
 
-        private async void DownloadResults(string runID)
+        public static async void DownloadResults(string runID)
         {
             TestRunResults runResult = await GetRunMetaData(runID);
             DownloadReport(runID, runResult.AnalysedResults.Id, "Reports.zip");
         }
 
-        private async Task<TestRunResults> GetRunMetaData(String id)
+        private static async Task<TestRunResults> GetRunMetaData(String id)
         {
             HttpResponseMessage response = client.GetAsync(SERVER_URL + "/LoadTest/rest/domains/" + DOMAIN + "/projects/" + PROJECT + "/Runs/" + id + "/Results/").Result;
             var content = await response.Content.ReadAsStringAsync();
-
-            
             XElement runs = XElement.Parse(content);
             TestRunResults testResults = new TestRunResults();
             foreach (XElement run in runs.Elements())
@@ -288,13 +406,12 @@ namespace PCRunCloningTool
                         break;
                 }
             }
-            // MessageBox.Show("Runs count: " + testResults.);
             return testResults;
         }
                 
-        private void DownloadReport(String runID, String resultId, String name)
+        private static void DownloadReport(String runID, String resultId, String name)
         {
-            REPORTS_LOCATION = folderPathBox.Text;
+            // REPORTS_LOCATION = folderPathBox.Text;
             string location = REPORTS_LOCATION + "/" + DOMAIN + "/" + PROJECT + "/" + runID + "/";
             string filePath = location + name;
             string reportURI = SERVER_URL + "/LoadTest/rest/domains/" + DOMAIN + "/projects/" + PROJECT + "/Runs/" + runID + "/Results/" + resultId + "/data";
@@ -321,12 +438,7 @@ namespace PCRunCloningTool
             myWebClient.DownloadFile(reportURI, filePath);
         }
 
-        
     }
-
-
-
-
 
     public class TestRunReport
     {
