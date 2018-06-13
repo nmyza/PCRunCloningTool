@@ -20,22 +20,22 @@ namespace PCRunCloningTool
                 
         }
 
-        public static void CopyDB(string runID, string reportsLocation, string domain, string project)
+        public static void CopyDB(TestRunResults run, string reportsLocation, string domain, string project)
         {
             string location;
             string accessDbFilePath;
             Console.WriteLine("CopyDB");
-            if (RunExist(runID, domain, project))
+            if (RunExist(run.AnalysedResults.RunId, domain, project))
             {
                 Console.WriteLine("Run exist!");
             }
             else
             {
-                location = reportsLocation + "/" + domain + "/" + project + "/" + runID + "/Reports";
-                accessDbFilePath = location + "/Results_" + runID + ".mdb";
-                CopyMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, runID);
-                CopySiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, runID);
-                CopyRun(runID, domain, project);
+                location = reportsLocation + "/" + domain + "/" + project + "/" + run.AnalysedResults.RunId + "/Reports";
+                accessDbFilePath = location + "/" + run.AnalysedResults.Name.Replace(".zip", ".mdb");
+                CopyMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, run.AnalysedResults.RunId);
+                CopySiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, run.AnalysedResults.RunId);
+                CopyRun(run.AnalysedResults.RunId, domain, project);
                 CopyRunFolders(domain, project);
                 TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), AspNetStat_SQL());
                 TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), DbStat_SQL());

@@ -108,11 +108,11 @@ namespace PCRunCloningTool
 
         private Task CopyRun(string ID)
         {
-            return Task.Run(() =>
+            return Task.Run(async () =>
             {
-                DownloadResults(ID);
-                UnzipDownloadedResults(ID, "Reports.zip");
-                DbManager.CopyDB(ID, REPORTS_LOCATION, DOMAIN, PROJECT);
+                TestRunResults run = await DownloadResults(ID);
+                UnzipDownloadedResults(ID, run.AnalysedResults.Name);
+                DbManager.CopyDB(run, REPORTS_LOCATION, DOMAIN, PROJECT);
                 Console.WriteLine("Copied successful. ID: " + ID);
             });
             
@@ -366,10 +366,11 @@ namespace PCRunCloningTool
             }
         }
 
-        public static async void DownloadResults(string runID)
+        public static async Task<TestRunResults> DownloadResults(string runID)
         {
             TestRunResults runResult = await GetRunMetaData(runID);
-            DownloadReport(runID, runResult.AnalysedResults.Id, "Reports.zip");
+            DownloadReport(runID, runResult.AnalysedResults.Id, runResult.AnalysedResults.Name);
+            return runResult;
         }
 
         private static async Task<TestRunResults> GetRunMetaData(String id)
