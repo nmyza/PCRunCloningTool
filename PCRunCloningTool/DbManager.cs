@@ -9,6 +9,8 @@ namespace PCRunCloningTool
 {
     internal class DbManager
     {
+        private static int SQL_BULK_COPY_TIMEOUT = 300;
+        private static int SQL_COMMAND_TIMEOUT = 300;
         public static void PrepareDb()
         {
             if (!CheckDatabaseExistsMSSQL(GlobalSettings.GetConnectionStringWithoutDB(), GlobalSettings.msSqlDatabaseNameCustom))
@@ -22,7 +24,7 @@ namespace PCRunCloningTool
 
         public static void CopyDB(TestRunResults run, string reportsLocation, string domain, string project)
         {
-            string location;
+            string runFolderLocation;
             string accessDbFilePath;
             Console.WriteLine("CopyDB");
             if (RunExist(run.AnalysedResults.RunId, domain, project))
@@ -31,8 +33,8 @@ namespace PCRunCloningTool
             }
             else
             {
-                location = reportsLocation + "/" + domain + "/" + project + "/" + run.AnalysedResults.RunId + "/Reports";
-                accessDbFilePath = location + "/" + run.AnalysedResults.Name.Replace(".zip", ".mdb");
+                runFolderLocation = reportsLocation + "/" + domain + "/" + project + "/" + run.AnalysedResults.RunId;
+                accessDbFilePath = runFolderLocation + "/Reports/" + run.AnalysedResults.Name.Replace(".zip", ".mdb");
                 CopyMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, run.AnalysedResults.RunId);
                 CopySiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, run.AnalysedResults.RunId);
                 CopyRun(run.AnalysedResults.RunId, domain, project);
@@ -40,8 +42,14 @@ namespace PCRunCloningTool
                 TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), AspNetStat_SQL());
                 TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), DbStat_SQL());
                 TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), ServerStat_SQL());
-                Directory.Delete(location, true);
+                DeleteTemporaryMetricData(run.AnalysedResults.RunId);
+                Directory.Delete(runFolderLocation, true);
             }
+        }
+
+        private static void DeleteTemporaryMetricData(string runID)
+        {
+            ExecuteCommand(GlobalSettings.GetConnectionStringCustomDB(), DeleteTemporaryMetricData_SQL(runID));
         }
 
         public static bool RunExist(string runID, string domain, string project)
@@ -68,6 +76,7 @@ namespace PCRunCloningTool
             using (SqlCommand command = new SqlCommand(sql, targeDB))
             {
                 targeDB.Open();
+                command.CommandTimeout = SQL_COMMAND_TIMEOUT;
                 var reader = command.ExecuteReader();
                 return reader.HasRows;
             }
@@ -80,6 +89,7 @@ namespace PCRunCloningTool
             using (SqlCommand command = new SqlCommand(sql, sourceDB))
             {
                 sourceDB.Open();
+                command.CommandTimeout = SQL_COMMAND_TIMEOUT;
                 var reader = command.ExecuteReader();
                 using (var destinationdestinationDB = new SqlConnection(GlobalSettings.GetConnectionStringCustomDB()))
                 {
@@ -111,6 +121,8 @@ namespace PCRunCloningTool
                         bulkCopy.ColumnMappings.Add("RN_PC_THROUGHPUT_AVERAGE", "RN_PC_THROUGHPUT_AVERAGE");
                         bulkCopy.ColumnMappings.Add("RN_PC_TRANSACT_SEC_AVERAGE", "RN_PC_TRANSACT_SEC_AVERAGE");
                         bulkCopy.DestinationTableName = "PCAnalysisDashboard.dbo.TestRuns";
+
+                        bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
                         try
                         {
                             bulkCopy.WriteToServer(reader);
@@ -137,6 +149,7 @@ namespace PCRunCloningTool
             using (SqlCommand command = new SqlCommand(sql, sourceDB))
             {
                 sourceDB.Open();
+                command.CommandTimeout = SQL_COMMAND_TIMEOUT;
                 var reader = command.ExecuteReader();
                 using (var destinationdestinationDB = new SqlConnection(GlobalSettings.GetConnectionStringCustomDB()))
                 {
@@ -148,8 +161,9 @@ namespace PCRunCloningTool
                         bulkCopy.ColumnMappings.Add("AL_ITEM_ID", "AL_ITEM_ID");
                         bulkCopy.ColumnMappings.Add("AL_FATHER_ID", "AL_FATHER_ID");
                         bulkCopy.ColumnMappings.Add("AL_DESCRIPTION", "AL_DESCRIPTION");
-
                         bulkCopy.DestinationTableName = "PCAnalysisDashboard.dbo.ALL_LISTS";
+
+                        bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
                         try
                         {
                             bulkCopy.WriteToServer(reader);
@@ -176,6 +190,7 @@ namespace PCRunCloningTool
                 sourceConnection.Open();
 
                 var commandSourceData = new OleDbCommand(CopyMetrics_SQL(runID), sourceConnection);
+                commandSourceData.CommandTimeout = SQL_COMMAND_TIMEOUT;
                 var reader = commandSourceData.ExecuteReader();
 
                 using (var destinationConnection = new SqlConnection(connectionString))
@@ -191,6 +206,7 @@ namespace PCRunCloningTool
                         bulkCopy.ColumnMappings.Add("Value", "Value");
                         bulkCopy.DestinationTableName = "PCAnalysisDashboard.dbo.TestRunStats";
 
+                        bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
                         try
                         {
                             bulkCopy.WriteToServer(reader);
@@ -234,6 +250,7 @@ namespace PCRunCloningTool
                         bulkCopy.ColumnMappings.Add("Min", "Min");
                         bulkCopy.DestinationTableName = "PCAnalysisDashboard.dbo.Monitor_meter";
 
+                        bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
                         try
                         {
                             bulkCopy.WriteToServer(reader);
@@ -259,6 +276,7 @@ namespace PCRunCloningTool
             {
                 connection.Open();
                 connection2.Open();
+                command.CommandTimeout = SQL_COMMAND_TIMEOUT;
                 var reader = command.ExecuteReader();
 
 
@@ -276,6 +294,7 @@ namespace PCRunCloningTool
                     bulkCopy.ColumnMappings.Add("Avg", "Avg");
                     bulkCopy.DestinationTableName = "PCAnalysisDashboard.dbo.SiteScopeStats";
 
+                    bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
                     try
                     {
                         bulkCopy.WriteToServer(reader);
@@ -296,6 +315,7 @@ namespace PCRunCloningTool
         {
             ExecuteCommand(GlobalSettings.GetConnectionStringWithoutDB(), DropDb_SQL());
         }
+
         private static void CreateDB()
         {
             ExecuteCommand(GlobalSettings.GetConnectionStringWithoutDB(), CreateDb_SQL());
@@ -341,6 +361,7 @@ namespace PCRunCloningTool
             {
                 using (var command = new SqlCommand(SQL, connection))
                 {
+                    command.CommandTimeout = SQL_COMMAND_TIMEOUT;
                     connection.Open();
                     command.ExecuteNonQuery();
                 }
@@ -355,6 +376,7 @@ namespace PCRunCloningTool
                 connection.Open();
                 using (SqlCommand command = new SqlCommand(sql, connection))
                 {
+                    command.CommandTimeout = SQL_COMMAND_TIMEOUT;
                     SqlDataReader dataReader = command.ExecuteReader();
 
                     result = new List<string>();
@@ -468,7 +490,6 @@ namespace PCRunCloningTool
                         ", domain, project, runID);
         }
 
-
         private static string RunsFromPcDB_SQL(string domain, string project)
         {
             return String.Format(@"
@@ -501,6 +522,10 @@ namespace PCRunCloningTool
                     ", domain, project);
         }
 
+        private static string DeleteTemporaryMetricData_SQL(string runID)
+        {
+            return String.Format("DELETE FROM[PCAnalysisDashboard].[dbo].[Monitor_meter] WHERE[RunID] = {0}", runID);
+        }
 
         private static string DropDb_SQL()
         {
@@ -614,6 +639,9 @@ namespace PCRunCloningTool
 	                ID
 	                ) WITH( STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
 
+                CREATE NONCLUSTERED INDEX IX_TestRun_RunID   
+                    ON PCAnalysisDashboard.dbo.TestRuns (RN_RUN_ID);
+
                 COMMIT
 
                 BEGIN TRANSACTION
@@ -631,6 +659,9 @@ namespace PCRunCloningTool
 	                (
 	                ID
 	                ) WITH( STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+
+                CREATE NONCLUSTERED INDEX IX_TestRunStats_RunID   
+                    ON PCAnalysisDashboard.dbo.TestRunStats (RunID);
                 COMMIT
 
                 BEGIN TRANSACTION
@@ -672,6 +703,9 @@ namespace PCRunCloningTool
 	                (
 	                ID
 	                ) WITH( STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+
+                CREATE NONCLUSTERED INDEX IX_SiteScopeStats_RunID   
+                    ON PCAnalysisDashboard.dbo.SiteScopeStats (RunID);
                 COMMIT
 
                 BEGIN TRANSACTION

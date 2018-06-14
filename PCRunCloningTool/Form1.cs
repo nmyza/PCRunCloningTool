@@ -136,7 +136,7 @@ namespace PCRunCloningTool
 
         }
 
-        private async void CopyRuns2(List<string> runs)
+        private void CopyRuns2(List<string> runs)
         {
 
             if (!DbManager.CheckDatabaseExistsMSSQL(GlobalSettings.GetConnectionStringWithoutDB(), GlobalSettings.msSqlDatabaseNameCustom))
@@ -171,11 +171,11 @@ namespace PCRunCloningTool
 
         private void Logs(string message)
         {
-            consoleBox.Text += message + Environment.NewLine;
+            //consoleBox.Text += message + Environment.NewLine;
             // set the current caret position to the end
-            consoleBox.SelectionStart = consoleBox.Text.Length;
+            //consoleBox.SelectionStart = consoleBox.Text.Length;
             // scroll it automatically
-            consoleBox.ScrollToCaret();
+            //consoleBox.ScrollToCaret();
         }
 
         private Task CopyRun(string ID)
