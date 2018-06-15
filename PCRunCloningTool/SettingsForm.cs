@@ -33,15 +33,7 @@ namespace PCRunCloningTool
 
         private void SaveSettingsBtn_Click(object sender, EventArgs e)
         {
-            GlobalSettings.msSqlServerNamePC = this.pcDbHostNameTxtBox.Text;
-            GlobalSettings.msSqlUserNamePC = this.pcDbUserNameTxtBox.Text;
-            GlobalSettings.msSqlPasswordPC = this.pcDbPasswordTxtBox.Text;
-
-            GlobalSettings.msSqlServerNameCustom = this.customDbHostNameTxtBox.Text;
-            GlobalSettings.msSqlUserNameCustom = this.customDbUserNameTxtBox.Text;
-            GlobalSettings.msSqlPasswordCustom = this.customDbPasswordTxtBox.Text;
-            GlobalSettings.msSqlDatabaseNameCustom = this.customDbDatabaseNameTxtBox.Text;
-
+            SaveSettings();
             this.Close();
         }
 
@@ -53,7 +45,21 @@ namespace PCRunCloningTool
 
         private void createTargetDbBtn_Click(object sender, EventArgs e)
         {
+            SaveSettings();
             DbManager.PrepareDb();
+            MessageBox.Show("DataBase is created");
+        }
+
+        private void SaveSettings()
+        {
+            GlobalSettings.msSqlServerNamePC = this.pcDbHostNameTxtBox.Text;
+            GlobalSettings.msSqlUserNamePC = this.pcDbUserNameTxtBox.Text;
+            GlobalSettings.msSqlPasswordPC = this.pcDbPasswordTxtBox.Text;
+
+            GlobalSettings.msSqlServerNameCustom = this.customDbHostNameTxtBox.Text;
+            GlobalSettings.msSqlUserNameCustom = this.customDbUserNameTxtBox.Text;
+            GlobalSettings.msSqlPasswordCustom = this.customDbPasswordTxtBox.Text;
+            GlobalSettings.msSqlDatabaseNameCustom = this.customDbDatabaseNameTxtBox.Text;
         }
     }
 }

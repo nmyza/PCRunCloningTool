@@ -52,9 +52,23 @@ namespace PCRunCloningTool
             client.GetAsync(SERVER_URL + PC_AUTH_URI);
 
             loadDomains();
+
+            Logger.InitLogger();
+            Logger.Log.Info("Application has started!");
+            Logger.Log.Error("Application has started!");
         }
 
         //***************** UI **********************/
+
+        public void Form1_Shown(object sender, EventArgs e)
+        {
+            if (!DbManager.CheckDatabaseExistsMSSQL(GlobalSettings.GetConnectionStringWithoutDB(), GlobalSettings.msSqlDatabaseNameCustom))
+            {
+                var form = new SettingsForm();
+                form.Show();
+                form.Focus();
+            }
+        }
 
         private void DownloadBtn_Click(object sender, EventArgs e)
         {

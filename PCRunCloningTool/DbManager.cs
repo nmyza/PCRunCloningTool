@@ -9,8 +9,8 @@ namespace PCRunCloningTool
 {
     internal class DbManager
     {
-        private static int SQL_BULK_COPY_TIMEOUT = 300;
-        private static int SQL_COMMAND_TIMEOUT = 300;
+        private static int SQL_BULK_COPY_TIMEOUT = 120;
+        private static int SQL_COMMAND_TIMEOUT = 120;
         public static void PrepareDb()
         {
             if (!CheckDatabaseExistsMSSQL(GlobalSettings.GetConnectionStringWithoutDB(), GlobalSettings.msSqlDatabaseNameCustom))
@@ -39,9 +39,9 @@ namespace PCRunCloningTool
                 CopySiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, run.AnalysedResults.RunId);
                 CopyRun(run.AnalysedResults.RunId, domain, project);
                 CopyRunFolders(domain, project);
-                TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), AspNetStat_SQL());
-                TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), DbStat_SQL());
-                TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), ServerStat_SQL());
+                TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), AspNetStat_SQL(run.AnalysedResults.RunId), run.AnalysedResults.RunId);
+                TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), DbStat_SQL(run.AnalysedResults.RunId), run.AnalysedResults.RunId);
+                TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), ServerStat_SQL(run.AnalysedResults.RunId), run.AnalysedResults.RunId);
                 DeleteTemporaryMetricData(run.AnalysedResults.RunId);
                 Directory.Delete(runFolderLocation, true);
             }
@@ -120,7 +120,7 @@ namespace PCRunCloningTool
                         bulkCopy.ColumnMappings.Add("RN_PC_HITS_SEC_AVERAGE", "RN_PC_HITS_SEC_AVERAGE");
                         bulkCopy.ColumnMappings.Add("RN_PC_THROUGHPUT_AVERAGE", "RN_PC_THROUGHPUT_AVERAGE");
                         bulkCopy.ColumnMappings.Add("RN_PC_TRANSACT_SEC_AVERAGE", "RN_PC_TRANSACT_SEC_AVERAGE");
-                        bulkCopy.DestinationTableName = "PCAnalysisDashboard.dbo.TestRuns";
+                        bulkCopy.DestinationTableName = GlobalSettings.msSqlDatabaseNameCustom + ".dbo.TestRuns";
 
                         bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
                         try
@@ -129,7 +129,8 @@ namespace PCRunCloningTool
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine(ex.Message);
+                            Console.WriteLine("Run ID: " + runID + Environment.NewLine + ex.Message);
+                            Logger.Log.Error("Data copying to TestRuns was failed. Run ID: " + runID + Environment.NewLine + ex.Message);
                         }
                         finally
                         {
@@ -161,7 +162,7 @@ namespace PCRunCloningTool
                         bulkCopy.ColumnMappings.Add("AL_ITEM_ID", "AL_ITEM_ID");
                         bulkCopy.ColumnMappings.Add("AL_FATHER_ID", "AL_FATHER_ID");
                         bulkCopy.ColumnMappings.Add("AL_DESCRIPTION", "AL_DESCRIPTION");
-                        bulkCopy.DestinationTableName = "PCAnalysisDashboard.dbo.ALL_LISTS";
+                        bulkCopy.DestinationTableName = GlobalSettings.msSqlDatabaseNameCustom + ".dbo.ALL_LISTS";
 
                         bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
                         try
@@ -171,6 +172,7 @@ namespace PCRunCloningTool
                         catch (Exception ex)
                         {
                             Console.WriteLine(ex.Message);
+                            Logger.Log.Error("Data copying to ALL_LISTS was failed. " + Environment.NewLine + ex.Message);
                         }
                         finally
                         {
@@ -204,7 +206,7 @@ namespace PCRunCloningTool
                         bulkCopy.ColumnMappings.Add("TransactionName", "TransactionName");
                         bulkCopy.ColumnMappings.Add("EndTime", "EndTime");
                         bulkCopy.ColumnMappings.Add("Value", "Value");
-                        bulkCopy.DestinationTableName = "PCAnalysisDashboard.dbo.TestRunStats";
+                        bulkCopy.DestinationTableName = GlobalSettings.msSqlDatabaseNameCustom + ".dbo.TestRunStats";
 
                         bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
                         try
@@ -213,7 +215,8 @@ namespace PCRunCloningTool
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine(ex.Message);
+                            Console.WriteLine("Run ID: " + runID + Environment.NewLine + ex.Message);
+                            Logger.Log.Error("Data copying to TestRunStats was failed. Run ID: " + runID + Environment.NewLine + ex.Message);
                         }
                         finally
                         {
@@ -248,7 +251,7 @@ namespace PCRunCloningTool
                         bulkCopy.ColumnMappings.Add("Avg", "Avg");
                         bulkCopy.ColumnMappings.Add("Max", "Max");
                         bulkCopy.ColumnMappings.Add("Min", "Min");
-                        bulkCopy.DestinationTableName = "PCAnalysisDashboard.dbo.Monitor_meter";
+                        bulkCopy.DestinationTableName = GlobalSettings.msSqlDatabaseNameCustom + ".dbo.Monitor_meter";
 
                         bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
                         try
@@ -257,7 +260,8 @@ namespace PCRunCloningTool
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine(ex.Message);
+                            Console.WriteLine("Run ID: " + runID + Environment.NewLine + ex.Message);
+                            Logger.Log.Error("Data copying to Monitor_meter was failed. Run ID: " + runID + Environment.NewLine + ex.Message);
                         }
                         finally
                         {
@@ -268,7 +272,7 @@ namespace PCRunCloningTool
             }
         }
 
-        private static void TakeSiteScopeAspNetMetrics(string connectionString, string sql)
+        private static void TakeSiteScopeAspNetMetrics(string connectionString, string sql, string runID)
         {
             using (var connection = new SqlConnection(connectionString))
             using (var connection2 = new SqlConnection(connectionString))
@@ -292,7 +296,7 @@ namespace PCRunCloningTool
                     bulkCopy.ColumnMappings.Add("Counter", "Counter");
                     bulkCopy.ColumnMappings.Add("Time", "Time");
                     bulkCopy.ColumnMappings.Add("Avg", "Avg");
-                    bulkCopy.DestinationTableName = "PCAnalysisDashboard.dbo.SiteScopeStats";
+                    bulkCopy.DestinationTableName = GlobalSettings.msSqlDatabaseNameCustom + ".dbo.SiteScopeStats";
 
                     bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
                     try
@@ -301,7 +305,8 @@ namespace PCRunCloningTool
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine(ex.Message);
+                        Console.WriteLine("Run ID: " + runID + Environment.NewLine + ex.Message);
+                        Logger.Log.Error("Data copying to SiteScopeStats was failed. Run ID: " + runID + Environment.NewLine + ex.Message);
                     }
                     finally
                     {
@@ -524,28 +529,28 @@ namespace PCRunCloningTool
 
         private static string DeleteTemporaryMetricData_SQL(string runID)
         {
-            return String.Format("DELETE FROM[PCAnalysisDashboard].[dbo].[Monitor_meter] WHERE[RunID] = {0}", runID);
+            return String.Format("DELETE FROM[{1}].[dbo].[Monitor_meter] WHERE[RunID] = {0}", runID, GlobalSettings.msSqlDatabaseNameCustom);
         }
 
         private static string DropDb_SQL()
         {
-            return @"
-                If(db_id(N'PCAnalysisDashboard') IS NOT NULL) 
-	                    drop database PCAnalysisDashboard;
-                ";
+            return String.Format(@"
+                If(db_id(N'{0}') IS NOT NULL) 
+	                    drop database {0};
+                ", GlobalSettings.msSqlDatabaseNameCustom);
         }
 
         private static string CreateDb_SQL()
         {
-            return @"
-                If(db_id(N'PCAnalysisDashboard') IS NULL)
-	                create database PCAnalysisDashboard;
-                ";
+            return String.Format(@"
+                If(db_id(N'{0}') IS NULL)
+	                create database {0};
+                ", GlobalSettings.msSqlDatabaseNameCustom);
         }
 
         private static string CreateFunctionID_SQL()
         {
-            return @"
+            return String.Format(@"
                 CREATE FUNCTION [dbo].[fnIndexdiff]
                                (@Input     VARCHAR(8000),
                                 @Delimiter1 CHAR(5),
@@ -558,12 +563,12 @@ namespace PCRunCloningTool
                     DECLARE  @fstindex INT,
                              @Lstindex    INT,
                              @Noofchars   INT
-                    SET @fstindex = PCAnalysisDashboard.dbo.fnNthIndex(@Input,@Delimiter1,@Ordinal1)
-	                SET @Lstindex = PCAnalysisDashboard.dbo.fnNthIndex(@Input,@Delimiter2,@Ordinal2)
+                    SET @fstindex = {0}.dbo.fnNthIndex(@Input,@Delimiter1,@Ordinal1)
+	                SET @Lstindex = {0}.dbo.fnNthIndex(@Input,@Delimiter2,@Ordinal2)
                     SET @Noofchars = @Lstindex-@fstindex
                     RETURN @Noofchars-1
                   END
-                ";
+                ", GlobalSettings.msSqlDatabaseNameCustom);
         }
 
         private static string CreateFunctionNI_SQL()
@@ -602,9 +607,9 @@ namespace PCRunCloningTool
 
         private static string CreateModel_SQL()
         {
-            return @"
+            return String.Format(@"
                 BEGIN TRANSACTION
-                CREATE TABLE PCAnalysisDashboard.dbo.TestRuns
+                CREATE TABLE {0}.dbo.TestRuns
                     (
                     ID int NOT NULL IDENTITY (1,1),
                     DOMAIN varchar(50) NOT NULL,
@@ -633,19 +638,19 @@ namespace PCRunCloningTool
                     RN_PC_TRANSACT_SEC_AVERAGE int
                     )  ON [PRIMARY]
                 
-                ALTER TABLE PCAnalysisDashboard.dbo.TestRuns ADD CONSTRAINT
+                ALTER TABLE {0}.dbo.TestRuns ADD CONSTRAINT
 	                PK_TestRuns PRIMARY KEY CLUSTERED 
 	                (
 	                ID
 	                ) WITH( STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
 
                 CREATE NONCLUSTERED INDEX IX_TestRun_RunID   
-                    ON PCAnalysisDashboard.dbo.TestRuns (RN_RUN_ID);
+                    ON {0}.dbo.TestRuns (RN_RUN_ID);
 
                 COMMIT
 
                 BEGIN TRANSACTION
-                CREATE TABLE PCAnalysisDashboard.dbo.TestRunStats
+                CREATE TABLE {0}.dbo.TestRunStats
 	                (
 	                ID int NOT NULL IDENTITY (1,1),
 	                RunID int NOT NULL,
@@ -654,18 +659,18 @@ namespace PCRunCloningTool
 	                EndTime varchar(50) NOT NULL,
 	                Value varchar(50) NOT NULL
 	                )  ON [PRIMARY]
-                ALTER TABLE PCAnalysisDashboard.dbo.TestRunStats ADD CONSTRAINT
+                ALTER TABLE {0}.dbo.TestRunStats ADD CONSTRAINT
 	                PK_TestRunStats PRIMARY KEY CLUSTERED 
 	                (
 	                ID
 	                ) WITH( STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
 
                 CREATE NONCLUSTERED INDEX IX_TestRunStats_RunID   
-                    ON PCAnalysisDashboard.dbo.TestRunStats (RunID);
+                    ON {0}.dbo.TestRunStats (RunID);
                 COMMIT
 
                 BEGIN TRANSACTION
-                CREATE TABLE PCAnalysisDashboard.dbo.Monitor_meter
+                CREATE TABLE {0}.dbo.Monitor_meter
 	                (
 	                ID int NOT NULL IDENTITY (1,1),
 	                RunID int NOT NULL,
@@ -676,7 +681,7 @@ namespace PCRunCloningTool
 	                [Max] float NOT NULL,
 	                [Min] float NOT NULL
 	                )  ON [PRIMARY]
-                ALTER TABLE PCAnalysisDashboard.dbo.Monitor_meter ADD CONSTRAINT
+                ALTER TABLE {0}.dbo.Monitor_meter ADD CONSTRAINT
 	                PK_Monitor_meter PRIMARY KEY CLUSTERED 
 	                (
 	                ID
@@ -684,7 +689,7 @@ namespace PCRunCloningTool
                 COMMIT
 
                 BEGIN TRANSACTION
-                CREATE TABLE PCAnalysisDashboard.dbo.SiteScopeStats
+                CREATE TABLE {0}.dbo.SiteScopeStats
 	                (
 	                ID int NOT NULL IDENTITY (1,1),
 	                RunID int NOT NULL,
@@ -698,18 +703,18 @@ namespace PCRunCloningTool
 	                [Time] float,
 	                [Avg] float
 	                )  ON [PRIMARY]
-                ALTER TABLE PCAnalysisDashboard.dbo.SiteScopeStats ADD CONSTRAINT
+                ALTER TABLE {0}.dbo.SiteScopeStats ADD CONSTRAINT
 	                PK_SiteScopeStats PRIMARY KEY CLUSTERED 
 	                (
 	                ID
 	                ) WITH( STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
 
                 CREATE NONCLUSTERED INDEX IX_SiteScopeStats_RunID   
-                    ON PCAnalysisDashboard.dbo.SiteScopeStats (RunID);
+                    ON {0}.dbo.SiteScopeStats (RunID);
                 COMMIT
 
                 BEGIN TRANSACTION
-                CREATE TABLE PCAnalysisDashboard.dbo.ALL_LISTS
+                CREATE TABLE {0}.dbo.ALL_LISTS
 	                (
                     DOMAIN varchar(50) NOT NULL,
                     PROJECT varchar(50) NOT NULL,
@@ -718,7 +723,7 @@ namespace PCRunCloningTool
 	                AL_DESCRIPTION varchar(255)
 	                )  ON [PRIMARY]
                 COMMIT
-                ";
+                ", GlobalSettings.msSqlDatabaseNameCustom);
         }
 
         private static string CopyMetrics_SQL(string runID)
@@ -773,46 +778,46 @@ namespace PCRunCloningTool
                 ", runID);
         }
 
-        private static string AspNetStat_SQL()
+        private static string AspNetStat_SQL(string runID)
         {
-            return @"
+            return String.Format(@"
                     /**********  ASP .NET Stats ******************/
                     SELECT
                         [runID]
                         ,'Asp.Net' as [StatType]
 	                    ,'TYPE'=SUBSTRING(	
 						                     datatbl.[Event Name]
-						                    ,[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',2)
-						                    ,[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',2,3))  
+						                    ,[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',2)
+						                    ,[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',2,3))  
 	                    ,'Server'=SUBSTRING(
 						                     [Event Name]
-						                    ,[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',4)
-						                    ,[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',4,5))
+						                    ,[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',4)
+						                    ,[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',4,5))
 	                    ,'Metrictype'=SUBSTRING(
 						                     [Event Name]
-						                    ,[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5)
-						                    ,[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))
+						                    ,[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5)
+						                    ,[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))
 	                    ,'Category' = SUBSTRING(
 						                     [Event Name]
-						                    ,[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',6)
-						                    ,[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','\',6,1))
+						                    ,[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',6)
+						                    ,[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','\',6,1))
 	                    ,'Instance' = CASE
 		                    WHEN len(datatbl.[Event Name]) - len(replace(datatbl.[Event Name], '\', '')) >1 
 		                    THEN 
 			                     SUBSTRING(datatbl.[Event Name]
-			                    ,[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'\',1)
-			                    ,[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'\','\',1,2))
+			                    ,[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'\',1)
+			                    ,[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'\','\',1,2))
 		                    ELSE ''
 		                    END
 	                    ,'Counter' = CASE 
 		                    WHEN len(datatbl.[Event Name]) - len(replace(datatbl.[Event Name], '\', '')) > 1 
 		                    THEN
 			                     SUBSTRING(datatbl.[Event Name]
-			                    ,[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'\',2)
+			                    ,[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'\',2)
 			                    ,len(datatbl.[Event Name]))
 		                    ELSE
 			                    SUBSTRING(datatbl.[Event Name]
-			                    ,[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'\',1)
+			                    ,[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'\',1)
 			                    ,len(datatbl.[Event Name]))
 		                    END
 	                    ,datatbl.[Endtime] as [Time]
@@ -826,35 +831,36 @@ namespace PCRunCloningTool
 		                    ,prntbl.[avg]
 		                    ,prntbl.[Max] 
 	                    FROM 
-		                    [PCAnalysisDashboard].[dbo].[Monitor_meter] prntbl  
-
+		                    [{0}].[dbo].[Monitor_meter] prntbl  
+                        WHERE 
+                            prntbl.runID = {1}
                     ) datatbl
                     WHERE 
 	                    SUBSTRING(datatbl.[Event Name]
-	                    ,[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5)
-	                    ,[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6)) in ('Processstats','Webservicestats','APPpool_Wpstats','NETAPPstats','NETCLRStats','ASPNETstats')
-                ";
+	                    ,[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5)
+	                    ,[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6)) in ('Processstats','Webservicestats','APPpool_Wpstats','NETAPPstats','NETCLRStats','ASPNETstats')
+                ", GlobalSettings.msSqlDatabaseNameCustom, runID);
         }
 
-        private static string DbStat_SQL()
+        private static string DbStat_SQL(string runID)
         {
-            return @"
+            return String.Format(@"
                     select [runID]
                     ,'Database' as [StatType]
-                    ,'TYPE'=SUBSTRING(datatbl.[Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',2),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',2,3))  
-                    ,'Server'=SUBSTRING([Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',4),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',4,5))
-                    ,'Metrictype'=SUBSTRING([Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))
+                    ,'TYPE'=SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',2),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',2,3))  
+                    ,'Server'=SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',4),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',4,5))
+                    ,'Metrictype'=SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))
                     ,'Category' = CASE 
-                    WHEN  SUBSTRING([Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))= 'SQLStats' 
-                    then SUBSTRING(datatbl.[Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'|',1),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'|','-',1,1))
+                    WHEN  SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))= 'SQLStats' 
+                    then SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'|',1),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'|','-',1,1))
                     END
                     ,'' as [Instance]
                     ,'Counter' = CASE 
-                    WHEN  SUBSTRING([Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))= 'SQLStats' then
-                    CASE WHEN SUBSTRING([Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'-',2),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'-','-',2,3))=' SQL Re' then
-                    SUBSTRING([Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'-',2),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'-','-',2,4))
+                    WHEN  SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))= 'SQLStats' then
+                    CASE WHEN SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'-',2),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'-','-',2,3))=' SQL Re' then
+                    SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'-',2),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'-','-',2,4))
                     else
-                    SUBSTRING([Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'-',2),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'-','-',2,3))
+                    SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'-',2),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'-','-',2,3))
                     END
                     END
                     ,datatbl.[Endtime] as [Time]
@@ -868,31 +874,33 @@ namespace PCRunCloningTool
                     ,prntbl.[avg]
                     ,prntbl.[Max] 
                     FROM 
-                    [PCAnalysisDashboard].[dbo].[Monitor_meter] prntbl
+                        [{0}].[dbo].[Monitor_meter] prntbl
+                    WHERE 
+                        prntbl.runID = {1}
                     ) datatbl
-                    where SUBSTRING(datatbl.[Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))= 'SQLStats'
-                ";
+                    where SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))= 'SQLStats'
+                ", GlobalSettings.msSqlDatabaseNameCustom, runID);
         }
 
-        private static string ServerStat_SQL()
+        private static string ServerStat_SQL(string runID)
         {
-            return @"
+            return String.Format(@"
                     select [runID]
                     ,'Server' as [StatType]
-                    ,'TYPE'=SUBSTRING(datatbl.[Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',2),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',2,3))  
-                    ,'Server'=SUBSTRING([Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',4),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',4,5))
-                    ,'Metrictype'=SUBSTRING([Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))
-                    ,'Category' = SUBSTRING([Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',6),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','\',6,1))
+                    ,'TYPE'=SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',2),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',2,3))  
+                    ,'Server'=SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',4),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',4,5))
+                    ,'Metrictype'=SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))
+                    ,'Category' = SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',6),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','\',6,1))
                     ,'Instance' = CASE
                     WHEN  len(datatbl.[Event Name]) - len(replace(datatbl.[Event Name], '\', '')) >1 then
-                    SUBSTRING(datatbl.[Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'\',1),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'\','\',1,2))
+                    SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'\',1),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'\','\',1,2))
                     ELSE ''
                     END
                     ,'Counter' = CASE 
                     WHEN len(datatbl.[Event Name]) - len(replace(datatbl.[Event Name], '\', '')) > 1 then
-                    SUBSTRING(datatbl.[Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'\',2),len(datatbl.[Event Name]))
+                    SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'\',2),len(datatbl.[Event Name]))
                     else
-                    SUBSTRING(datatbl.[Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'\',1),len(datatbl.[Event Name]))
+                    SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'\',1),len(datatbl.[Event Name]))
                     END
                     ,datatbl.[Endtime] as [Time]
                     ,datatbl.[Avg] as [Avg]
@@ -905,10 +913,12 @@ namespace PCRunCloningTool
                     ,prntbl.[avg]
                     ,prntbl.[Max] 
                     FROM 
-                    [PCAnalysisDashboard].[dbo].[Monitor_meter] prntbl
+                        [{0}].[dbo].[Monitor_meter] prntbl
+                    WHERE 
+                        prntbl.runID = {1}
                     ) datatbl
-                    where  SUBSTRING(datatbl.[Event Name],[PCAnalysisDashboard].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[PCAnalysisDashboard].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))= 'ServerStats'
-                ";
+                    where  SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))= 'ServerStats'
+                ", GlobalSettings.msSqlDatabaseNameCustom, runID);
         }
 
         private static string RunFoldersPCDB_SQL(string domain, string project)
@@ -933,9 +943,9 @@ namespace PCRunCloningTool
                             ,[AL_ITEM_ID]
                             ,[AL_FATHER_ID]
                             ,[AL_DESCRIPTION]
-                        FROM [PCAnalysisDashboard].[dbo].[ALL_LISTS]
+                        FROM [{2}].[dbo].[ALL_LISTS]
                         WHERE [DOMAIN] = '{0}' AND [PROJECT] = '{1}'
-                    ", domain, project);
+                    ", domain, project, GlobalSettings.msSqlDatabaseNameCustom);
         }
     }
 }

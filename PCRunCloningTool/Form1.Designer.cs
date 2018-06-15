@@ -305,6 +305,7 @@
             this.Margin = new System.Windows.Forms.Padding(2);
             this.Name = "Form1";
             this.Text = "Cloning Tool";
+            this.Shown += new System.EventHandler(this.Form1_Shown);
             ((System.ComponentModel.ISupportInitialize)(this.testRunsGridView)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
