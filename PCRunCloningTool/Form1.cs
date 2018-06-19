@@ -55,7 +55,6 @@ namespace PCRunCloningTool
 
             Logger.InitLogger();
             Logger.Log.Info("Application has started!");
-            Logger.Log.Error("Application has started!");
         }
 
         //***************** UI **********************/
@@ -467,6 +466,7 @@ namespace PCRunCloningTool
             TestRunResults testResults = new TestRunResults();
             foreach (XElement run in runs.Elements())
             {
+                Console.WriteLine("Run: " + run.ToString());
                 TestRunReport testRunReport = new TestRunReport(
                     run.Element(NS + "ID").Value,
                     run.Element(NS + "Name").Value,

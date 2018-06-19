@@ -39,9 +39,9 @@ namespace PCRunCloningTool
                 CopySiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, run.AnalysedResults.RunId);
                 CopyRun(run.AnalysedResults.RunId, domain, project);
                 CopyRunFolders(domain, project);
-                TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), AspNetStat_SQL(run.AnalysedResults.RunId), run.AnalysedResults.RunId);
-                TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), DbStat_SQL(run.AnalysedResults.RunId), run.AnalysedResults.RunId);
-                TakeSiteScopeAspNetMetrics(GlobalSettings.GetConnectionStringCustomDB(), ServerStat_SQL(run.AnalysedResults.RunId), run.AnalysedResults.RunId);
+                TakeSiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), AspNetStat_SQL(run.AnalysedResults.RunId), run.AnalysedResults.RunId, "SiteScope_AspNet_Stats");
+                TakeSiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), DbStat_SQL(run.AnalysedResults.RunId), run.AnalysedResults.RunId, "SiteScope_Database_Stats");
+                TakeSiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), ServerStat_SQL(run.AnalysedResults.RunId), run.AnalysedResults.RunId, "SiteScope_Server_Stats");
                 DeleteTemporaryMetricData(run.AnalysedResults.RunId);
                 Directory.Delete(runFolderLocation, true);
             }
@@ -125,10 +125,13 @@ namespace PCRunCloningTool
                         bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
                         try
                         {
+                            Utils.StartMeasure("TestRuns");
                             bulkCopy.WriteToServer(reader);
+                            Utils.StopMeasure("TestRuns");
                         }
                         catch (Exception ex)
                         {
+                            Utils.StopMeasure("TestRuns");
                             Console.WriteLine("Run ID: " + runID + Environment.NewLine + ex.Message);
                             Logger.Log.Error("Data copying to TestRuns was failed. Run ID: " + runID + Environment.NewLine + ex.Message);
                         }
@@ -211,10 +214,13 @@ namespace PCRunCloningTool
                         bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
                         try
                         {
+                            Utils.StartMeasure("TestRunStats");
                             bulkCopy.WriteToServer(reader);
+                            Utils.StopMeasure("TestRunStats");
                         }
                         catch (Exception ex)
                         {
+                            Utils.StopMeasure("TestRunStats");
                             Console.WriteLine("Run ID: " + runID + Environment.NewLine + ex.Message);
                             Logger.Log.Error("Data copying to TestRunStats was failed. Run ID: " + runID + Environment.NewLine + ex.Message);
                         }
@@ -256,10 +262,14 @@ namespace PCRunCloningTool
                         bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
                         try
                         {
+                            Utils.StartMeasure("Monitor_meter");
                             bulkCopy.WriteToServer(reader);
+                            Utils.StopMeasure("Monitor_meter");
+
                         }
                         catch (Exception ex)
                         {
+                            Utils.StopMeasure("Monitor_meter");
                             Console.WriteLine("Run ID: " + runID + Environment.NewLine + ex.Message);
                             Logger.Log.Error("Data copying to Monitor_meter was failed. Run ID: " + runID + Environment.NewLine + ex.Message);
                         }
@@ -272,7 +282,7 @@ namespace PCRunCloningTool
             }
         }
 
-        private static void TakeSiteScopeAspNetMetrics(string connectionString, string sql, string runID)
+        private static void TakeSiteScopeMetrics(string connectionString, string sql, string runID, string tableName)
         {
             using (var connection = new SqlConnection(connectionString))
             using (var connection2 = new SqlConnection(connectionString))
@@ -287,7 +297,7 @@ namespace PCRunCloningTool
                 using (var bulkCopy = new SqlBulkCopy(connection2))
                 {
                     bulkCopy.ColumnMappings.Add("RunID", "RunID");
-                    bulkCopy.ColumnMappings.Add("StatType", "StatType");
+                    //bulkCopy.ColumnMappings.Add("StatType", "StatType");
                     bulkCopy.ColumnMappings.Add("TYPE", "TYPE");
                     bulkCopy.ColumnMappings.Add("Server", "Server");
                     bulkCopy.ColumnMappings.Add("Metrictype", "Metrictype");
@@ -296,15 +306,19 @@ namespace PCRunCloningTool
                     bulkCopy.ColumnMappings.Add("Counter", "Counter");
                     bulkCopy.ColumnMappings.Add("Time", "Time");
                     bulkCopy.ColumnMappings.Add("Avg", "Avg");
-                    bulkCopy.DestinationTableName = GlobalSettings.msSqlDatabaseNameCustom + ".dbo.SiteScopeStats";
+                    //bulkCopy.DestinationTableName = GlobalSettings.msSqlDatabaseNameCustom + ".dbo.SiteScopeStats";
+                    bulkCopy.DestinationTableName = GlobalSettings.msSqlDatabaseNameCustom + ".dbo." + tableName;
 
                     bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
                     try
                     {
+                        Utils.StartMeasure(tableName);
                         bulkCopy.WriteToServer(reader);
+                        Utils.StopMeasure(tableName);
                     }
                     catch (Exception ex)
                     {
+                        Utils.StopMeasure(tableName);
                         Console.WriteLine("Run ID: " + runID + Environment.NewLine + ex.Message);
                         Logger.Log.Error("Data copying to SiteScopeStats was failed. Run ID: " + runID + Environment.NewLine + ex.Message);
                     }
@@ -714,6 +728,78 @@ namespace PCRunCloningTool
                 COMMIT
 
                 BEGIN TRANSACTION
+                CREATE TABLE {0}.dbo.SiteScope_AspNet_Stats
+	                (
+	                ID int NOT NULL IDENTITY (1,1),
+	                RunID int NOT NULL,
+	                [TYPE] varchar(50),
+	                [Server] varchar(50),
+	                [Metrictype] varchar(50),
+	                [Category] varchar(50),
+	                [Instance] varchar(50),
+	                [Counter] varchar(50),
+	                [Time] float,
+	                [Avg] float
+	                )  ON [PRIMARY]
+                ALTER TABLE {0}.dbo.SiteScope_AspNet_Stats ADD CONSTRAINT
+	                PK_SiteScope_AspNet_Stats PRIMARY KEY CLUSTERED 
+	                (
+	                ID
+	                ) WITH( STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+
+                CREATE NONCLUSTERED INDEX IX_SiteScope_AspNet_Stats_RunID   
+                    ON {0}.dbo.SiteScope_AspNet_Stats (RunID);
+                COMMIT
+
+                BEGIN TRANSACTION
+                CREATE TABLE {0}.dbo.SiteScope_Server_Stats
+	                (
+	                ID int NOT NULL IDENTITY (1,1),
+	                RunID int NOT NULL,
+	                [TYPE] varchar(50),
+	                [Server] varchar(50),
+	                [Metrictype] varchar(50),
+	                [Category] varchar(50),
+	                [Instance] varchar(50),
+	                [Counter] varchar(50),
+	                [Time] float,
+	                [Avg] float
+	                )  ON [PRIMARY]
+                ALTER TABLE {0}.dbo.SiteScope_Server_Stats ADD CONSTRAINT
+	                PK_SiteScope_Server_Stats PRIMARY KEY CLUSTERED 
+	                (
+	                ID
+	                ) WITH( STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+
+                CREATE NONCLUSTERED INDEX IX_SiteScope_Server_Stats_RunID   
+                    ON {0}.dbo.SiteScope_Server_Stats (RunID);
+                COMMIT
+
+                BEGIN TRANSACTION
+                CREATE TABLE {0}.dbo.SiteScope_Database_Stats
+	                (
+	                ID int NOT NULL IDENTITY (1,1),
+	                RunID int NOT NULL,
+	                [TYPE] varchar(50),
+	                [Server] varchar(50),
+	                [Metrictype] varchar(50),
+	                [Category] varchar(50),
+	                [Instance] varchar(50),
+	                [Counter] varchar(50),
+	                [Time] float,
+	                [Avg] float
+	                )  ON [PRIMARY]
+                ALTER TABLE {0}.dbo.SiteScope_Database_Stats ADD CONSTRAINT
+	                PK_SiteScope_Database_Stats PRIMARY KEY CLUSTERED 
+	                (
+	                ID
+	                ) WITH( STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+
+                CREATE NONCLUSTERED INDEX IX_SiteScope_Database_Stats_RunID   
+                    ON {0}.dbo.SiteScope_Database_Stats (RunID);
+                COMMIT
+
+                BEGIN TRANSACTION
                 CREATE TABLE {0}.dbo.ALL_LISTS
 	                (
                     DOMAIN varchar(50) NOT NULL,
@@ -784,7 +870,7 @@ namespace PCRunCloningTool
                     /**********  ASP .NET Stats ******************/
                     SELECT
                         [runID]
-                        ,'Asp.Net' as [StatType]
+                        /*,'Asp.Net' as [StatType]*/
 	                    ,'TYPE'=SUBSTRING(	
 						                     datatbl.[Event Name]
 						                    ,[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',2)
@@ -846,7 +932,7 @@ namespace PCRunCloningTool
         {
             return String.Format(@"
                     select [runID]
-                    ,'Database' as [StatType]
+                    /*,'Database' as [StatType]*/
                     ,'TYPE'=SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',2),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',2,3))  
                     ,'Server'=SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',4),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',4,5))
                     ,'Metrictype'=SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))
@@ -886,7 +972,7 @@ namespace PCRunCloningTool
         {
             return String.Format(@"
                     select [runID]
-                    ,'Server' as [StatType]
+                    /*,'Server' as [StatType]*/
                     ,'TYPE'=SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',2),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',2,3))  
                     ,'Server'=SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',4),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',4,5))
                     ,'Metrictype'=SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))
