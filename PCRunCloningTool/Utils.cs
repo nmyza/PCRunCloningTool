@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -8,6 +9,8 @@ namespace PCRunCloningTool
 {
     internal class Utils
     {
+        //[ThreadStatic]
+        //private static Dictionary<string, Stopwatch> map = new Dictionary<string, Stopwatch>();
         private static ThreadLocal<Dictionary<string, Stopwatch>> map = new ThreadLocal<Dictionary<string, Stopwatch>>(() => { return new Dictionary<string, Stopwatch>(); });
 
         public static void Unzip(string source, string target)

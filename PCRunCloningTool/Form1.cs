@@ -49,12 +49,17 @@ namespace PCRunCloningTool
         {
             InitializeComponent();
 
-            client.GetAsync(SERVER_URL + PC_AUTH_URI);
+            AuthorizePC();
 
             loadDomains();
 
             Logger.InitLogger();
             Logger.Log.Info("Application has started!");
+        }
+
+        private static void AuthorizePC()
+        {
+            client.GetAsync(SERVER_URL + PC_AUTH_URI);
         }
 
         //***************** UI **********************/
@@ -438,7 +443,8 @@ namespace PCRunCloningTool
         }
 
         private async void LoadRunsByREST()
-        { 
+        {
+            AuthorizePC();
             HttpResponseMessage response = client.GetAsync(SERVER_URL + "/LoadTest/rest/domains/" + DOMAIN + "/projects/" + PROJECT + "/Runs").Result;
             var content = await response.Content.ReadAsStringAsync();
 
@@ -454,12 +460,14 @@ namespace PCRunCloningTool
         public static async Task<TestRunResults> DownloadResults(string runID)
         {
             TestRunResults runResult = await GetRunMetaData(runID);
+            Console.WriteLine("RunResult " + runResult.ToString());
             DownloadReport(runID, runResult.AnalysedResults.Id, runResult.AnalysedResults.Name);
             return runResult;
         }
 
         private static async Task<TestRunResults> GetRunMetaData(String id)
         {
+            AuthorizePC();
             HttpResponseMessage response = client.GetAsync(SERVER_URL + "/LoadTest/rest/domains/" + DOMAIN + "/projects/" + PROJECT + "/Runs/" + id + "/Results/").Result;
             var content = await response.Content.ReadAsStringAsync();
             XElement runs = XElement.Parse(content);
@@ -498,7 +506,7 @@ namespace PCRunCloningTool
                 
         private static void DownloadReport(String runID, String resultId, String name)
         {
-            // REPORTS_LOCATION = folderPathBox.Text;
+            AuthorizePC();
             string location = REPORTS_LOCATION + "/" + DOMAIN + "/" + PROJECT + "/" + runID + "/";
             string filePath = location + name;
             string reportURI = SERVER_URL + "/LoadTest/rest/domains/" + DOMAIN + "/projects/" + PROJECT + "/Runs/" + runID + "/Results/" + resultId + "/data";
