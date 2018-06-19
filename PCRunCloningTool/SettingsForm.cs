@@ -48,6 +48,7 @@ namespace PCRunCloningTool
             SaveSettings();
             DbManager.PrepareDb();
             MessageBox.Show("DataBase is created");
+            this.Close();
         }
 
         private void SaveSettings()

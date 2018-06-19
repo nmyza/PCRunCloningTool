@@ -277,7 +277,11 @@ namespace PCRunCloningTool
 
         private void settingsBtn_Click(object sender, EventArgs e)
         {
-            new SettingsForm().Show();
+            var form = new SettingsForm();
+            if (Application.OpenForms[form.Name] == null)
+                form.ShowDialog();
+            else
+                Application.OpenForms[form.Name].Focus();
         }
 
         private void loadRunsBtn_Click(object sender, EventArgs e)
