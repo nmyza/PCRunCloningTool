@@ -36,6 +36,7 @@ namespace PCRunCloningTool
                 runFolderLocation = reportsLocation + "/" + domain + "/" + project + "/" + run.AnalysedResults.RunId;
                 accessDbFilePath = runFolderLocation + "/Reports/" + run.AnalysedResults.Name.Replace(".zip", ".mdb");
                 CopyMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, run.AnalysedResults.RunId);
+                CopyTransactionSummary(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, run.AnalysedResults.RunId);
                 CopySiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, run.AnalysedResults.RunId);
                 CopyRun(run.AnalysedResults.RunId, domain, project);
                 CopyRunFolders(domain, project);
@@ -329,6 +330,61 @@ namespace PCRunCloningTool
                 }
             }
         }
+
+        private static void CopyTransactionSummary(string connectionString, string accessDbFilePath, string runID)
+        {
+            // string accessConnStr = @"Provider=Microsoft.Jet.OLEDB.4.0;Data source= C:\\tmp\\Reports\\Results_59.mdb";
+            string accessConnStr = @"Provider=Microsoft.Jet.OLEDB.4.0;Data source=" + accessDbFilePath;
+            using (var sourceConnection = new OleDbConnection(accessConnStr))
+            {
+                sourceConnection.Open();
+
+                var commandSourceData = new OleDbCommand(TransactionSummary_SQL(runID), sourceConnection);
+                var reader = commandSourceData.ExecuteReader();
+
+                using (var destinationConnection = new SqlConnection(connectionString))
+                {
+                    destinationConnection.Open();
+
+                    using (var bulkCopy = new SqlBulkCopy(destinationConnection))
+                    {
+                        bulkCopy.ColumnMappings.Add("RunID", "RunID");
+                        bulkCopy.ColumnMappings.Add("Event ID", "Event ID");
+                        bulkCopy.ColumnMappings.Add("TransactionName", "TransactionName");
+                        bulkCopy.ColumnMappings.Add("RT50Perc", "RT50Perc");
+                        bulkCopy.ColumnMappings.Add("RT85Perc", "RT85Perc");
+                        bulkCopy.ColumnMappings.Add("RTmin", "RTmin");
+                        bulkCopy.ColumnMappings.Add("RTmax", "RTmax");
+                        bulkCopy.ColumnMappings.Add("RTavg", "RTavg");
+                        bulkCopy.ColumnMappings.Add("pass", "pass");
+                        bulkCopy.ColumnMappings.Add("fail", "fail"); 
+                        bulkCopy.ColumnMappings.Add("SLA50Perc", "SLA50Perc");
+                        bulkCopy.ColumnMappings.Add("SLA85Perc", "SLA85Perc");
+                        bulkCopy.DestinationTableName = GlobalSettings.msSqlDatabaseNameCustom + ".dbo.TestTransactionSummary";
+
+                        bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
+                        try
+                        {
+                            Utils.StartMeasure("TestTransactionSummary");
+                            bulkCopy.WriteToServer(reader);
+                            Utils.StopMeasure("TestTransactionSummary");
+
+                        }
+                        catch (Exception ex)
+                        {
+                            Utils.StopMeasure("TestTransactionSummary");
+                            Console.WriteLine("Run ID: " + runID + Environment.NewLine + ex.Message);
+                            Logger.Log.Error("Data copying to TestTransactionSummary was failed. Run ID: " + runID + Environment.NewLine + ex.Message);
+                        }
+                        finally
+                        {
+                            reader.Close();
+                        }
+                    }
+                }
+            }
+        }
+
 
         private static void DropDB()
         {
@@ -703,28 +759,30 @@ namespace PCRunCloningTool
                 COMMIT
 
                 BEGIN TRANSACTION
-                CREATE TABLE {0}.dbo.SiteScopeStats
+                CREATE TABLE {0}.dbo.TestTransactionSummary
 	                (
-	                ID int NOT NULL IDENTITY (1,1),
-	                RunID int NOT NULL,
-	                [StatType] varchar(50),
-	                [TYPE] varchar(50),
-	                [Server] varchar(50),
-	                [Metrictype] varchar(50),
-	                [Category] varchar(50),
-	                [Instance] varchar(50),
-	                [Counter] varchar(50),
-	                [Time] float,
-	                [Avg] float
+	                ID int NOT NULL IDENTITY (1,1)
+	                ,RunID int NOT NULL
+                    ,[Event ID] int NOT NULL
+	                ,[TransactionName] varchar(50)
+	                ,[RT50Perc] float
+					,[RT85Perc] float
+                    ,[SLA50Perc] varchar(10)
+                    ,[SLA85Perc] varchar(10)
+					,[RTmin] float
+					,[RTmax] float
+					,[RTavg] float
+					,[pass] int
+					,[fail] int
 	                )  ON [PRIMARY]
-                ALTER TABLE {0}.dbo.SiteScopeStats ADD CONSTRAINT
-	                PK_SiteScopeStats PRIMARY KEY CLUSTERED 
+                ALTER TABLE {0}.dbo.TestTransactionSummary ADD CONSTRAINT
+	                PK_TestTransactionSummary PRIMARY KEY CLUSTERED 
 	                (
 	                ID
 	                ) WITH( STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
 
-                CREATE NONCLUSTERED INDEX IX_SiteScopeStats_RunID   
-                    ON {0}.dbo.SiteScopeStats (RunID);
+                CREATE NONCLUSTERED INDEX IX_TestTransactionSummary_RunID   
+                    ON {0}.dbo.TestTransactionSummary (RunID);
                 COMMIT
 
                 BEGIN TRANSACTION
@@ -1032,6 +1090,57 @@ namespace PCRunCloningTool
                         FROM [{2}].[dbo].[ALL_LISTS]
                         WHERE [DOMAIN] = '{0}' AND [PROJECT] = '{1}'
                     ", domain, project, GlobalSettings.msSqlDatabaseNameCustom);
+        }
+
+        private static string TransactionSummary_SQL(string runID)
+        {
+            return String.Format(@"
+                        SELECT 
+	                            '{0}' as [RunID],
+                                data50.[Event ID],data50.[Event Name] as [TransactionName],[RT50Perc],[RT85Perc],[RTmin],[RTmax],[RTavg],[pass],[fail]
+                                ,IIF(InStr(data50.[Event Name], 'API'), IIF([RT50Perc]<=0.300, 'Passed', 'Failed'), IIF([RT50Perc]<=0.500, 'Passed', 'Failed')) as [SLA50Perc]
+                                ,IIF(InStr(data50.[Event Name], 'API'), IIF([RT85Perc]<=0.500, 'Passed', 'Failed'), IIF([RT85Perc]<=0.800, 'Passed', 'Failed')) as [SLA85Perc]
+                        FROM ((
+                            SELECT 
+	                             TOP 1 round(Value,4) AS [RT50Perc],irdata.[Event ID],[Event Name]
+	                        FROM ( 
+		                        SELECT 
+			                            TOP 50 PERCENT Value,[Event ID]
+		                        FROM 
+			                        [Event_meter]  
+		                        WHERE 
+			                        [Tree Path ID]>=0
+		                        ORDER BY Value ASC
+	                        ) irdata INNER JOIN [Event_map] map ON irdata.[Event ID]=map.[Event ID]
+	                        WHERE  map.[Event Type]='Transaction'
+                        ) data50
+                        INNER JOIN (
+	                        SELECT 
+		                         TOP 1 round(irdata.Value,4) AS [RT85Perc],irdata.[Event ID],[Event Name]
+		                    FROM ( 
+			                    SELECT 
+				                        TOP 85 PERCENT Value,[Event ID]
+			                    FROM 
+				                    [Event_meter]  
+			                    WHERE 
+				                    [Tree Path ID]>=0
+			                    ORDER BY Value ASC
+		                    ) irdata INNER JOIN [Event_map] map ON irdata.[Event ID]=map.[Event ID]
+		                    WHERE  map.[Event Type]='Transaction'
+                        ) data85 ON data50.[Event ID] = data85.[Event ID])
+                        INNER JOIN (
+	                        SELECT
+		                        [Event ID],round(MIN(Value),4) as [RTmin],round(MAX(Value),4) as [RTmax],round(AVG(Value),4) as [RTavg]
+                                ,COUNT(Switch(Status1=1, 'Passed')) as [pass]
+                                ,COUNT(Switch(Status1=0, 'Failed')) as [fail]
+	                        FROM 
+		                        [Event_meter] 
+	                        WHERE 
+		                        [Tree Path ID]>=0 and [Status1]=1
+	                        GROUP BY
+		                        [Event ID]
+                        ) dataStat ON data50.[Event ID] = dataStat.[Event ID]
+                    ", runID);
         }
     }
 }
