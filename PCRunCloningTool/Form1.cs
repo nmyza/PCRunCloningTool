@@ -115,7 +115,7 @@ namespace PCRunCloningTool
                     else
                     {
                         Logs("Run is copied. ID: " + runID);
-                        Console.WriteLine("Run is already in DB. ID: " + runID);
+                        Console.WriteLine("Run is already in DB. ID: " + runID + DbManager.GetIdOfCopiedRun(runID, DOMAIN, PROJECT));
                     }
             }
         }
@@ -202,7 +202,7 @@ namespace PCRunCloningTool
             {
                 TestRunResults run = await DownloadResults(ID);
                 UnzipDownloadedResults(ID, run.AnalysedResults.Name);
-                DbManager.CopyDB(run, REPORTS_LOCATION, DOMAIN, PROJECT);
+                DbManager.CopyDB(run, REPORTS_LOCATION, DOMAIN, PROJECT, GetProjectsMap(DOMAIN)[PROJECT]);
                 Console.WriteLine("Copied successful. ID: " + ID);
             });
             
@@ -228,7 +228,7 @@ namespace PCRunCloningTool
             firstLevelFolderComBox.Enabled = true;
 
             foldersDataSet.Clear();
-            DbManager.GetFolderStructure(foldersDataSet, FOLDERS_TABLE_NAME, DOMAIN, PROJECT);
+            DbManager.GetFolderStructure(foldersDataSet, FOLDERS_TABLE_NAME, DOMAIN, PROJECT, GetProjectsMap(DOMAIN)[PROJECT]);
             FillFirstLevelFolderComBox(foldersDataSet, FOLDERS_TABLE_NAME);
             DisableComboBoxes(secondLevelFolderComBox, threeLevelFolderComBox, fourLevelFolderComBox);
             DisableComboBoxLabels(labelRelease, labelVersion, labelSubVersion);
@@ -302,7 +302,7 @@ namespace PCRunCloningTool
                 parrentFolderIDs = "";
 
             runsDataSet.Clear();
-            DbManager.LoadRunsFromDB(runsDataSet, RUN_TABLE_NAME, DOMAIN, PROJECT, parrentFolderIDs);
+            DbManager.LoadRunsFromDB(runsDataSet, RUN_TABLE_NAME, DOMAIN, PROJECT, parrentFolderIDs, GetProjectsMap(DOMAIN)[PROJECT]);
 
             ShowRuns(runsDataSet, RUN_TABLE_NAME);
             
@@ -442,8 +442,37 @@ namespace PCRunCloningTool
             firstLevelFolderComBox.Text = "";
             secondLevelFolderComBox.Items.Clear();
             secondLevelFolderComBox.Text = "";
-            foreach (string project in DbManager.LoadProjects(domain))
+            //foreach (string project in DbManager.LoadProjects(domain))
+            foreach (string project in GetProjectList(domain))
                 projectComBox.Items.Add(project);            
+        }
+
+        Dictionary<string, Dictionary<string, string>> domainProjetcDatabaseMap = new Dictionary<string, Dictionary<string, string>>();
+
+        private List<string> GetProjectList(string domain)
+        {
+            return GetProjectsMap(domain).Keys.ToList();
+        }
+
+        private Dictionary<string, string> GetProjectsMap(string domain)
+        {
+            if (!domainProjetcDatabaseMap.TryGetValue(domain, out Dictionary<string, string> projects))
+            {
+                projects = LoadProjectsData(domain);
+                domainProjetcDatabaseMap.Add(domain, projects);
+            }
+            return projects;
+        }
+
+        private static Dictionary<string, string> LoadProjectsData(string domain)
+        {
+            Dictionary<string, string> result = new Dictionary<string, string>();
+            List<List<string>> projects = DbManager.LoadProjectsData(domain);
+            foreach(List<string> project in projects)
+            {
+                result.Add(project[0], project[1]);
+            }
+            return result;
         }
 
         private async void LoadRunsByREST()

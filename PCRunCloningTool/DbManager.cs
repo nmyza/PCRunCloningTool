@@ -22,27 +22,29 @@ namespace PCRunCloningTool
                 
         }
 
-        public static void CopyDB(TestRunResults run, string reportsLocation, string domain, string project)
+        public static void CopyDB(TestRunResults run, string reportsLocation, string domain, string project, string pcDbName)
         {
             string runFolderLocation;
             string accessDbFilePath;
             Console.WriteLine("CopyDB");
             if (RunExist(run.AnalysedResults.RunId, domain, project))
             {
-                Console.WriteLine("Run exist!");
+                Console.WriteLine("Run exist!" + GetIdOfCopiedRun(run.AnalysedResults.RunId, domain, project));
             }
             else
             {
                 runFolderLocation = reportsLocation + "/" + domain + "/" + project + "/" + run.AnalysedResults.RunId;
                 accessDbFilePath = runFolderLocation + "/Reports/" + run.AnalysedResults.Name.Replace(".zip", ".mdb");
-                CopyMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, run.AnalysedResults.RunId);
-                CopyTransactionSummary(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, run.AnalysedResults.RunId);
-                CopySiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, run.AnalysedResults.RunId);
-                CopyRun(run.AnalysedResults.RunId, domain, project);
-                CopyRunFolders(domain, project);
-                TakeSiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), AspNetStat_SQL(run.AnalysedResults.RunId), run.AnalysedResults.RunId, "SiteScope_AspNet_Stats");
-                TakeSiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), DbStat_SQL(run.AnalysedResults.RunId), run.AnalysedResults.RunId, "SiteScope_Database_Stats");
-                TakeSiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), ServerStat_SQL(run.AnalysedResults.RunId), run.AnalysedResults.RunId, "SiteScope_Server_Stats");
+
+                CopyRun(run.AnalysedResults.RunId, domain, project, pcDbName);
+                string testRunTableID = DbManager.GetIdOfCopiedRun(run.AnalysedResults.RunId, domain, project);
+                CopyMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, run.AnalysedResults.RunId, testRunTableID);
+                CopyTransactionSummary(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, run.AnalysedResults.RunId, testRunTableID);
+                CopySiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), accessDbFilePath, run.AnalysedResults.RunId, testRunTableID);
+                CopyRunFolders(domain, project, pcDbName);
+                TakeSiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), AspNetStat_SQL(run.AnalysedResults.RunId, testRunTableID), run.AnalysedResults.RunId, "SiteScope_AspNet_Stats");
+                TakeSiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), DbStat_SQL(run.AnalysedResults.RunId, testRunTableID), run.AnalysedResults.RunId, "SiteScope_Database_Stats");
+                TakeSiteScopeMetrics(GlobalSettings.GetConnectionStringCustomDB(), ServerStat_SQL(run.AnalysedResults.RunId, testRunTableID), run.AnalysedResults.RunId, "SiteScope_Server_Stats");
                 DeleteTemporaryMetricData(run.AnalysedResults.RunId);
                 Directory.Delete(runFolderLocation, true);
             }
@@ -55,11 +57,26 @@ namespace PCRunCloningTool
 
         public static bool RunExist(string runID, string domain, string project)
         {
-            string sql = @"
-                            SELECT *
-                            FROM [" + GlobalSettings.msSqlDatabaseNameCustom + @"].[dbo].[TestRuns]
-                            WHERE [RN_RUN_ID] = " + runID;
-            return HasRowsInCustomDB(sql);
+            string _sql = String.Format(@"
+                            SELECT [TestRunId]
+                            FROM [{0}].[dbo].[TestRuns]
+                            WHERE [RN_RUN_ID] = {1} AND [DOMAIN] = '{2}' AND [PROJECT] = '{3}'", GlobalSettings.msSqlDatabaseNameCustom, runID, domain, project);
+
+            return HasRowsInCustomDB(_sql);
+        }
+
+        public static string GetIdOfCopiedRun(string runID, string domain, string project)
+        {
+            string _sql = String.Format(@"
+                            SELECT [TestRunId]
+                            FROM [{0}].[dbo].[TestRuns]
+                            WHERE [RN_RUN_ID] = {1} AND [DOMAIN] = '{2}' AND [PROJECT] = '{3}'", GlobalSettings.msSqlDatabaseNameCustom, runID, domain, project);
+            List<string> ids = ExecuteDataRequest(_sql, GlobalSettings.GetConnectionStringCustomDB());
+            if (ids.Count > 1) new OperationCanceledException();
+            string result = "Null";
+            if (ids.Count == 1)
+                result = ids[0];
+            return result;
         }
 
         private static bool RunFoldersExist(string domain, string project)
@@ -83,9 +100,9 @@ namespace PCRunCloningTool
             }
         }
 
-        private static void CopyRun(string runID, string domain, string project)
+        private static void CopyRun(string runID, string domain, string project, string pcDbName)
         {
-            string sql = RunByIdFromPcDB_SQL(domain, project, runID);
+            string sql = RunByIdFromPcDB_SQL(domain, project, runID, pcDbName);
             using (var sourceDB = new SqlConnection(GlobalSettings.GetConnectionStringPCDB()))
             using (SqlCommand command = new SqlCommand(sql, sourceDB))
             {
@@ -145,11 +162,11 @@ namespace PCRunCloningTool
             }
         }
 
-        private static void CopyRunFolders(string domain, string project)
+        private static void CopyRunFolders(string domain, string project, string pcDbName)
         {
             if (RunFoldersExist(domain, project)) return;
 
-            string sql = RunFoldersPCDB_SQL(domain, project);
+            string sql = RunFoldersPCDB_SQL(domain, project, pcDbName);
             using (var sourceDB = new SqlConnection(GlobalSettings.GetConnectionStringPCDB()))
             using (SqlCommand command = new SqlCommand(sql, sourceDB))
             {
@@ -187,15 +204,14 @@ namespace PCRunCloningTool
             }
         }
 
-        private static void CopyMetrics(string connectionString, string accessDbFilePath, string runID)
+        private static void CopyMetrics(string connectionString, string accessDbFilePath, string runID, string testRunTableID)
         {
-            // string accessConnStr = @"Provider=Microsoft.Jet.OLEDB.4.0;Data source= C:\\tmp\\Reports\\Results_59.mdb";
             string accessConnStr = @"Provider=Microsoft.Jet.OLEDB.4.0;Data source=" + accessDbFilePath;
             using (var sourceConnection = new OleDbConnection(accessConnStr))
             {
                 sourceConnection.Open();
 
-                var commandSourceData = new OleDbCommand(CopyMetrics_SQL(runID), sourceConnection);
+                var commandSourceData = new OleDbCommand(CopyMetrics_SQL(runID, testRunTableID), sourceConnection);
                 commandSourceData.CommandTimeout = SQL_COMMAND_TIMEOUT;
                 var reader = commandSourceData.ExecuteReader();
 
@@ -205,8 +221,9 @@ namespace PCRunCloningTool
 
                     using (var bulkCopy = new SqlBulkCopy(destinationConnection))
                     {
-                        bulkCopy.ColumnMappings.Add("RunID", "RunID");
+                        bulkCopy.ColumnMappings.Add("RunID", "RunID");  //TODO: Remove
                         bulkCopy.ColumnMappings.Add("Metric", "Metric");
+                        bulkCopy.ColumnMappings.Add("TestRunId", "TestRunId");
                         bulkCopy.ColumnMappings.Add("TransactionName", "TransactionName");
                         bulkCopy.ColumnMappings.Add("EndTime", "EndTime");
                         bulkCopy.ColumnMappings.Add("Value", "Value");
@@ -234,15 +251,14 @@ namespace PCRunCloningTool
             }
         }
 
-        private static void CopySiteScopeMetrics(string connectionString, string accessDbFilePath, string runID)
+        private static void CopySiteScopeMetrics(string connectionString, string accessDbFilePath, string runID, string testRunTableID)
         {
-            // string accessConnStr = @"Provider=Microsoft.Jet.OLEDB.4.0;Data source= C:\\tmp\\Reports\\Results_59.mdb";
             string accessConnStr = @"Provider=Microsoft.Jet.OLEDB.4.0;Data source=" + accessDbFilePath;
             using (var sourceConnection = new OleDbConnection(accessConnStr))
             {
                 sourceConnection.Open();
 
-                var commandSourceData = new OleDbCommand(SiteScopeMetrics_SQL(runID), sourceConnection);
+                var commandSourceData = new OleDbCommand(SiteScopeMetrics_SQL(runID, testRunTableID), sourceConnection);
                 var reader = commandSourceData.ExecuteReader();
 
                 using (var destinationConnection = new SqlConnection(connectionString))
@@ -252,6 +268,7 @@ namespace PCRunCloningTool
                     using (var bulkCopy = new SqlBulkCopy(destinationConnection))
                     {
                         bulkCopy.ColumnMappings.Add("RunID", "RunID");
+                        bulkCopy.ColumnMappings.Add("TestRunId", "TestRunId");
                         bulkCopy.ColumnMappings.Add("Event Name", "Event Name");
                         bulkCopy.ColumnMappings.Add("Event Type", "Event Type");
                         bulkCopy.ColumnMappings.Add("EndTime", "EndTime");
@@ -298,7 +315,7 @@ namespace PCRunCloningTool
                 using (var bulkCopy = new SqlBulkCopy(connection2))
                 {
                     bulkCopy.ColumnMappings.Add("RunID", "RunID");
-                    //bulkCopy.ColumnMappings.Add("StatType", "StatType");
+                    bulkCopy.ColumnMappings.Add("TestRunId", "TestRunId");
                     bulkCopy.ColumnMappings.Add("TYPE", "TYPE");
                     bulkCopy.ColumnMappings.Add("Server", "Server");
                     bulkCopy.ColumnMappings.Add("Metrictype", "Metrictype");
@@ -307,7 +324,6 @@ namespace PCRunCloningTool
                     bulkCopy.ColumnMappings.Add("Counter", "Counter");
                     bulkCopy.ColumnMappings.Add("Time", "Time");
                     bulkCopy.ColumnMappings.Add("Avg", "Avg");
-                    //bulkCopy.DestinationTableName = GlobalSettings.msSqlDatabaseNameCustom + ".dbo.SiteScopeStats";
                     bulkCopy.DestinationTableName = GlobalSettings.msSqlDatabaseNameCustom + ".dbo." + tableName;
 
                     bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
@@ -331,60 +347,91 @@ namespace PCRunCloningTool
             }
         }
 
-        private static void CopyTransactionSummary(string connectionString, string accessDbFilePath, string runID)
+        private static void CopyTransactionSummary(string connectionString, string accessDbFilePath, string runID, string testRunTableID)
         {
-            // string accessConnStr = @"Provider=Microsoft.Jet.OLEDB.4.0;Data source= C:\\tmp\\Reports\\Results_59.mdb";
             string accessConnStr = @"Provider=Microsoft.Jet.OLEDB.4.0;Data source=" + accessDbFilePath;
+            List<string> transactionIventIdList = GetTransactionEventIdList(accessConnStr);
             using (var sourceConnection = new OleDbConnection(accessConnStr))
             {
                 sourceConnection.Open();
-
-                var commandSourceData = new OleDbCommand(TransactionSummary_SQL(runID), sourceConnection);
-                var reader = commandSourceData.ExecuteReader();
-
-                using (var destinationConnection = new SqlConnection(connectionString))
+                foreach (string eventID in transactionIventIdList)
                 {
-                    destinationConnection.Open();
+                    var commandSourceData = new OleDbCommand(TransactionSummary_SQL(runID, testRunTableID, eventID), sourceConnection);
+                    var reader = commandSourceData.ExecuteReader();
 
-                    using (var bulkCopy = new SqlBulkCopy(destinationConnection))
+                    using (var destinationConnection = new SqlConnection(connectionString))
                     {
-                        bulkCopy.ColumnMappings.Add("RunID", "RunID");
-                        bulkCopy.ColumnMappings.Add("Event ID", "Event ID");
-                        bulkCopy.ColumnMappings.Add("TransactionName", "TransactionName");
-                        bulkCopy.ColumnMappings.Add("RT50Perc", "RT50Perc");
-                        bulkCopy.ColumnMappings.Add("RT85Perc", "RT85Perc");
-                        bulkCopy.ColumnMappings.Add("RTmin", "RTmin");
-                        bulkCopy.ColumnMappings.Add("RTmax", "RTmax");
-                        bulkCopy.ColumnMappings.Add("RTavg", "RTavg");
-                        bulkCopy.ColumnMappings.Add("pass", "pass");
-                        bulkCopy.ColumnMappings.Add("fail", "fail"); 
-                        bulkCopy.ColumnMappings.Add("SLA50Perc", "SLA50Perc");
-                        bulkCopy.ColumnMappings.Add("SLA85Perc", "SLA85Perc");
-                        bulkCopy.DestinationTableName = GlobalSettings.msSqlDatabaseNameCustom + ".dbo.TestTransactionSummary";
+                        destinationConnection.Open();
 
-                        bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
-                        try
+                        using (var bulkCopy = new SqlBulkCopy(destinationConnection))
                         {
-                            Utils.StartMeasure("TestTransactionSummary");
-                            bulkCopy.WriteToServer(reader);
-                            Utils.StopMeasure("TestTransactionSummary");
+                            bulkCopy.ColumnMappings.Add("RunID", "RunID");
+                            bulkCopy.ColumnMappings.Add("TestRunId", "TestRunId");
+                            bulkCopy.ColumnMappings.Add("Event ID", "Event ID");
+                            bulkCopy.ColumnMappings.Add("TransactionName", "TransactionName");
+                            bulkCopy.ColumnMappings.Add("RT50Perc", "RT50Perc");
+                            bulkCopy.ColumnMappings.Add("RT85Perc", "RT85Perc");
+                            bulkCopy.ColumnMappings.Add("RTmin", "RTmin");
+                            bulkCopy.ColumnMappings.Add("RTmax", "RTmax");
+                            bulkCopy.ColumnMappings.Add("RTavg", "RTavg");
+                            bulkCopy.ColumnMappings.Add("Pass", "Pass");
+                            bulkCopy.ColumnMappings.Add("Fail", "Fail");
+                            bulkCopy.ColumnMappings.Add("Stop", "Stop");
+                            bulkCopy.ColumnMappings.Add("SLA50Perc", "SLA50Perc");
+                            bulkCopy.ColumnMappings.Add("SLA85Perc", "SLA85Perc");
 
-                        }
-                        catch (Exception ex)
-                        {
-                            Utils.StopMeasure("TestTransactionSummary");
-                            Console.WriteLine("Run ID: " + runID + Environment.NewLine + ex.Message);
-                            Logger.Log.Error("Data copying to TestTransactionSummary was failed. Run ID: " + runID + Environment.NewLine + ex.Message);
-                        }
-                        finally
-                        {
-                            reader.Close();
+                            bulkCopy.DestinationTableName = GlobalSettings.msSqlDatabaseNameCustom + ".dbo.TestTransactionSummary";
+
+                            bulkCopy.BulkCopyTimeout = SQL_BULK_COPY_TIMEOUT;
+                            try
+                            {
+                                Utils.StartMeasure("TestTransactionSummary");
+                                bulkCopy.WriteToServer(reader);
+                                Utils.StopMeasure("TestTransactionSummary");
+
+                            }
+                            catch (Exception ex)
+                            {
+                                Utils.StopMeasure("TestTransactionSummary");
+                                Console.WriteLine("Run ID: " + runID + Environment.NewLine + ex.Message);
+                                Logger.Log.Error("Data copying to TestTransactionSummary was failed. Run ID: " + runID + Environment.NewLine + ex.Message);
+                            }
+                            finally
+                            {
+                                reader.Close();
+                            }
                         }
                     }
+                    commandSourceData.Dispose();
                 }
             }
         }
 
+        private static List<string> GetTransactionEventIdList(string accessConnStr)
+        {
+            string sql = @"
+                    SELECT DISTINCT Event_meter.[Event ID]
+                    FROM Event_meter INNER JOIN Event_map ON Event_meter.[Event ID] = Event_map.[Event ID]
+                    WHERE Event_map.[Event Type]='Transaction';
+                ";
+            List<string> result;
+
+            using (var sourceConnection = new OleDbConnection(accessConnStr))
+            {
+                sourceConnection.Open();
+
+                var commandSourceData = new OleDbCommand(sql, sourceConnection);
+                var reader = commandSourceData.ExecuteReader();
+                
+                result = new List<string>();
+                while (reader.Read())
+                {
+                    result.Add(reader.GetValue(0).ToString());
+                }
+                reader.Close();
+            }
+            return result;
+        }
 
         private static void DropDB()
         {
@@ -430,6 +477,12 @@ namespace PCRunCloningTool
             return ExecuteDataRequest(sql, GlobalSettings.GetConnectionStringPCDB());
         }
 
+        public static List<List<string>> LoadProjectsData(string domain)
+        {
+            string sql = "Select [PROJECT_NAME],[DB_NAME] From [pcsiteadmin_db].[td].[PROJECTS] WHERE [DOMAIN_NAME] LIKE '" + domain + "'";
+            return ExecuteDataRequestList(sql, GlobalSettings.GetConnectionStringPCDB(),2);
+        }
+
         private static void ExecuteCommand(string connectionString, string SQL)
         {
             using (var connection = new SqlConnection(connectionString))
@@ -465,7 +518,34 @@ namespace PCRunCloningTool
             return result;
         }
 
-        public static void LoadRunsFromDB(DataSet dataSet, string member, string domain, string project, string parrentFolderIDs)
+        private static List<List<string>> ExecuteDataRequestList(string sql, string connetionString, int count)
+        {
+            List<List<string>> result = null;
+            using (var connection = new SqlConnection(connetionString))
+            {
+                connection.Open();
+                using (SqlCommand command = new SqlCommand(sql, connection))
+                {
+                    command.CommandTimeout = SQL_COMMAND_TIMEOUT;
+                    SqlDataReader dataReader = command.ExecuteReader();
+
+                    result = new List<List<string>>();
+                    while (dataReader.Read())
+                    {
+                        List<string> list = new List<string>();
+                        for(int i = 0;i < count; i++)
+                        {
+                            list.Add(dataReader.GetValue(i).ToString());
+                        }
+                        result.Add(list);
+                    }
+                    dataReader.Close();
+                }
+            }
+            return result;
+        }
+
+        public static void LoadRunsFromDB(DataSet dataSet, string member, string domain, string project, string parrentFolderIDs, string pcDbName)
         {
             string where = "";
             if (!String.IsNullOrEmpty(parrentFolderIDs))
@@ -475,11 +555,11 @@ namespace PCRunCloningTool
                 dataSet,
                 member,
                 GlobalSettings.GetConnectionStringPCDB(),
-                RunsFromPcDB_SQL(domain, project) + where
+                RunsFromPcDB_SQL(domain, project, pcDbName) + where
                 );
         }
 
-        public static void GetFolderStructure(DataSet data, string member, string domain, string project)
+        public static void GetFolderStructure(DataSet data, string member, string domain, string project, string pcDbName)
         {
             LoadDataSetFromDB(
                 data,
@@ -489,7 +569,7 @@ namespace PCRunCloningTool
             );
             if (data.Tables[member].Rows.Count == 0)
             {
-                CopyRunFolders(domain, project);
+                CopyRunFolders(domain, project, pcDbName);
                 LoadDataSetFromDB(
                     data,
                     member,
@@ -513,11 +593,12 @@ namespace PCRunCloningTool
         /***************  SQL Partion ****************/
         /*********************************************/
 
-        private static string SiteScopeMetrics_SQL(string runID)
+        private static string SiteScopeMetrics_SQL(string runID, string testRunTableID)
         {
             return String.Format(@"
                         SELECT
                             '{0}' as [RunID]
+                            ,{1} as [TestRunId]
 	                        ,evmp.[Event Name]
 	                        ,evmp.[Event Type]
 	                        ,Int([End Time]/60) as [Endtime]
@@ -528,10 +609,10 @@ namespace PCRunCloningTool
                         INNER JOIN [Event_map] evmp on monmr.[Event ID]=evmp.[Event ID] 
                         WHERE evmp.[Event Name] not like '%countersInError%' and evmp.[Event Type]='SiteScope' 
                         GROUP BY evmp.[Event Name],evmp.[Event Type],Int([End Time]/60)
-                    ", runID);
+                    ", runID, testRunTableID);
         }
 
-        private static string RunByIdFromPcDB_SQL(string domain, string project, string runID)
+        private static string RunByIdFromPcDB_SQL(string domain, string project, string runID, string pcDbName)
         {
             return String.Format(@"
                         SELECT   '{0}' as DOMAIN
@@ -559,13 +640,13 @@ namespace PCRunCloningTool
                                 ,[RN_PC_THROUGHPUT_AVERAGE]
                                 ,[RN_PC_TRANSACT_SEC_AVERAGE]
                           FROM 
-                            [{0}_{1}_db].[td].[RUN] INNER JOIN [{0}_{1}_db].[td].[TEST] ON [RN_TEST_ID] = [TS_TEST_ID]
+                            [{3}].[td].[RUN] INNER JOIN [{3}].[td].[TEST] ON [RN_TEST_ID] = [TS_TEST_ID]
                           WHERE 
                             [RN_RUN_ID] = {2}
-                        ", domain, project, runID);
+                        ", domain, project, runID, pcDbName);
         }
 
-        private static string RunsFromPcDB_SQL(string domain, string project)
+        private static string RunsFromPcDB_SQL(string domain, string project, string pcDbName)
         {
             return String.Format(@"
                         SELECT   '{0}' as DOMAIN
@@ -593,8 +674,8 @@ namespace PCRunCloningTool
                                 ,[RN_PC_THROUGHPUT_AVERAGE]
                                 ,[RN_PC_TRANSACT_SEC_AVERAGE]
                           FROM 
-                            [{0}_{1}_db].[td].[RUN] INNER JOIN [{0}_{1}_db].[td].[TEST] ON [RN_TEST_ID] = [TS_TEST_ID]
-                    ", domain, project);
+                            [{2}].[td].[RUN] INNER JOIN [{2}].[td].[TEST] ON [RN_TEST_ID] = [TS_TEST_ID]
+                    ", domain, project, pcDbName);
         }
 
         private static string DeleteTemporaryMetricData_SQL(string runID)
@@ -681,7 +762,7 @@ namespace PCRunCloningTool
                 BEGIN TRANSACTION
                 CREATE TABLE {0}.dbo.TestRuns
                     (
-                    ID int NOT NULL IDENTITY (1,1),
+                    TestRunId int NOT NULL IDENTITY (1,1),
                     DOMAIN varchar(50) NOT NULL,
                     PROJECT varchar(50) NOT NULL,
 				    RN_TEST_ID int,
@@ -711,23 +792,26 @@ namespace PCRunCloningTool
                 ALTER TABLE {0}.dbo.TestRuns ADD CONSTRAINT
 	                PK_TestRuns PRIMARY KEY CLUSTERED 
 	                (
-	                ID
+	                TestRunId
 	                ) WITH( STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
 
                 CREATE NONCLUSTERED INDEX IX_TestRun_RunID   
                     ON {0}.dbo.TestRuns (RN_RUN_ID);
 
                 COMMIT
-
+/******** TABLE TestRunStats *****************/
                 BEGIN TRANSACTION
                 CREATE TABLE {0}.dbo.TestRunStats
 	                (
 	                ID int NOT NULL IDENTITY (1,1),
+                    TestRunId int NOT NULL,
 	                RunID int NOT NULL,
 	                Metric varchar(50) NOT NULL,
 	                TransactionName varchar(50) NOT NULL,
 	                EndTime varchar(50) NOT NULL,
-	                Value varchar(50) NOT NULL
+	                Value varchar(50) NOT NULL,
+                    CONSTRAINT FK_TestRunStats_Id FOREIGN KEY (TestRunId)
+                        REFERENCES TestRuns(TestRunId)
 	                )  ON [PRIMARY]
                 ALTER TABLE {0}.dbo.TestRunStats ADD CONSTRAINT
 	                PK_TestRunStats PRIMARY KEY CLUSTERED 
@@ -738,18 +822,21 @@ namespace PCRunCloningTool
                 CREATE NONCLUSTERED INDEX IX_TestRunStats_RunID   
                     ON {0}.dbo.TestRunStats (RunID);
                 COMMIT
-
+/******** TABLE Monitor_meter *****************/
                 BEGIN TRANSACTION
                 CREATE TABLE {0}.dbo.Monitor_meter
 	                (
 	                ID int NOT NULL IDENTITY (1,1),
 	                RunID int NOT NULL,
+                    TestRunId int NOT NULL,
 	                [Event Name] varchar(250) NOT NULL,
 	                [Event Type] varchar(50) NOT NULL,
 	                EndTime float NOT NULL,
 	                [Avg] float NOT NULL,
 	                [Max] float NOT NULL,
-	                [Min] float NOT NULL
+	                [Min] float NOT NULL,
+                    CONSTRAINT FK_Monitor_meter_Id FOREIGN KEY (TestRunId)
+                        REFERENCES TestRuns(TestRunId)
 	                )  ON [PRIMARY]
                 ALTER TABLE {0}.dbo.Monitor_meter ADD CONSTRAINT
 	                PK_Monitor_meter PRIMARY KEY CLUSTERED 
@@ -757,12 +844,13 @@ namespace PCRunCloningTool
 	                ID
 	                ) WITH( STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
                 COMMIT
-
+/******** TABLE TestTransactionSummary *****************/
                 BEGIN TRANSACTION
                 CREATE TABLE {0}.dbo.TestTransactionSummary
 	                (
 	                ID int NOT NULL IDENTITY (1,1)
 	                ,RunID int NOT NULL
+                    ,TestRunId int NOT NULL
                     ,[Event ID] int NOT NULL
 	                ,[TransactionName] varchar(50)
 	                ,[RT50Perc] float
@@ -772,8 +860,9 @@ namespace PCRunCloningTool
 					,[RTmin] float
 					,[RTmax] float
 					,[RTavg] float
-					,[pass] int
-					,[fail] int
+					,[Pass] int
+					,[Fail] int
+					,[Stop] int
 	                )  ON [PRIMARY]
                 ALTER TABLE {0}.dbo.TestTransactionSummary ADD CONSTRAINT
 	                PK_TestTransactionSummary PRIMARY KEY CLUSTERED 
@@ -784,12 +873,13 @@ namespace PCRunCloningTool
                 CREATE NONCLUSTERED INDEX IX_TestTransactionSummary_RunID   
                     ON {0}.dbo.TestTransactionSummary (RunID);
                 COMMIT
-
+/******** TABLE SiteScope_AspNet_Stats *****************/
                 BEGIN TRANSACTION
                 CREATE TABLE {0}.dbo.SiteScope_AspNet_Stats
 	                (
 	                ID int NOT NULL IDENTITY (1,1),
 	                RunID int NOT NULL,
+                    TestRunId int NOT NULL,
 	                [TYPE] varchar(50),
 	                [Server] varchar(50),
 	                [Metrictype] varchar(50),
@@ -797,7 +887,9 @@ namespace PCRunCloningTool
 	                [Instance] varchar(50),
 	                [Counter] varchar(50),
 	                [Time] float,
-	                [Avg] float
+	                [Avg] float,
+                    CONSTRAINT FK_SiteScope_AspNet_Stats_Id FOREIGN KEY (TestRunId)
+                        REFERENCES TestRuns(TestRunId)
 	                )  ON [PRIMARY]
                 ALTER TABLE {0}.dbo.SiteScope_AspNet_Stats ADD CONSTRAINT
 	                PK_SiteScope_AspNet_Stats PRIMARY KEY CLUSTERED 
@@ -808,12 +900,13 @@ namespace PCRunCloningTool
                 CREATE NONCLUSTERED INDEX IX_SiteScope_AspNet_Stats_RunID   
                     ON {0}.dbo.SiteScope_AspNet_Stats (RunID);
                 COMMIT
-
+/******** TABLE SiteScope_Server_Stats *****************/
                 BEGIN TRANSACTION
                 CREATE TABLE {0}.dbo.SiteScope_Server_Stats
 	                (
 	                ID int NOT NULL IDENTITY (1,1),
 	                RunID int NOT NULL,
+                    TestRunId int NOT NULL,
 	                [TYPE] varchar(50),
 	                [Server] varchar(50),
 	                [Metrictype] varchar(50),
@@ -821,7 +914,9 @@ namespace PCRunCloningTool
 	                [Instance] varchar(50),
 	                [Counter] varchar(50),
 	                [Time] float,
-	                [Avg] float
+	                [Avg] float,
+                    CONSTRAINT FK_SiteScope_Server_Stats_Id FOREIGN KEY (TestRunId)
+                        REFERENCES TestRuns(TestRunId)
 	                )  ON [PRIMARY]
                 ALTER TABLE {0}.dbo.SiteScope_Server_Stats ADD CONSTRAINT
 	                PK_SiteScope_Server_Stats PRIMARY KEY CLUSTERED 
@@ -832,12 +927,13 @@ namespace PCRunCloningTool
                 CREATE NONCLUSTERED INDEX IX_SiteScope_Server_Stats_RunID   
                     ON {0}.dbo.SiteScope_Server_Stats (RunID);
                 COMMIT
-
+/******** TABLE SiteScope_Database_Stats *****************/
                 BEGIN TRANSACTION
                 CREATE TABLE {0}.dbo.SiteScope_Database_Stats
 	                (
 	                ID int NOT NULL IDENTITY (1,1),
 	                RunID int NOT NULL,
+                    TestRunId int NOT NULL,
 	                [TYPE] varchar(50),
 	                [Server] varchar(50),
 	                [Metrictype] varchar(50),
@@ -845,7 +941,9 @@ namespace PCRunCloningTool
 	                [Instance] varchar(50),
 	                [Counter] varchar(50),
 	                [Time] float,
-	                [Avg] float
+	                [Avg] float,
+                    CONSTRAINT FK_SiteScope_Database_Stats_Id FOREIGN KEY (TestRunId)
+                        REFERENCES TestRuns(TestRunId)
 	                )  ON [PRIMARY]
                 ALTER TABLE {0}.dbo.SiteScope_Database_Stats ADD CONSTRAINT
 	                PK_SiteScope_Database_Stats PRIMARY KEY CLUSTERED 
@@ -856,7 +954,7 @@ namespace PCRunCloningTool
                 CREATE NONCLUSTERED INDEX IX_SiteScope_Database_Stats_RunID   
                     ON {0}.dbo.SiteScope_Database_Stats (RunID);
                 COMMIT
-
+/******** TABLE ALL_LISTS *****************/
                 BEGIN TRANSACTION
                 CREATE TABLE {0}.dbo.ALL_LISTS
 	                (
@@ -870,12 +968,13 @@ namespace PCRunCloningTool
                 ", GlobalSettings.msSqlDatabaseNameCustom);
         }
 
-        private static string CopyMetrics_SQL(string runID)
+        private static string CopyMetrics_SQL(string runID, string testRunTableId)
         {
             return String.Format(@"
                      SELECT 
 	                    '{0}' as [RunID]
-	                    ,'Response Time' as [Metric] 
+                        ,{1} as [TestRunId]
+                        , 'Response Time' as [Metric] 
 	                    ,evmp.[Event Name] as [TransactionName]
 	                    ,[End time] as [EndTime]
 	                    ,[Value]
@@ -887,6 +986,7 @@ namespace PCRunCloningTool
 
                     SELECT 
 	                    '{0}' as [RunID]
+                        ,{1} as [TestRunId]
 	                    ,'Hits/Sec' as [Metric] 
 	                    ,'Scenario' as [TransactionName]
 	                    ,otbl.Endtime*10 as [EndTime]
@@ -909,6 +1009,7 @@ namespace PCRunCloningTool
 
                     SELECT 
 	                     '{0}' as [RunID]
+                        ,{1} as [TestRunId]
 	                    ,'Running Users' as [Metric] 
 	                    ,'Scenario' as [TransactionName]
 	                    ,otbl.Endtime as [EndTime]
@@ -919,15 +1020,16 @@ namespace PCRunCloningTool
 	                    WHERE [Vuser Status ID]=2 
 	                    GROUP BY itbl.[End Time] 
 	                    ) otbl 
-                ", runID);
+                ", runID, testRunTableId);
         }
 
-        private static string AspNetStat_SQL(string runID)
+        private static string AspNetStat_SQL(string runID, string testRunTableID)
         {
             return String.Format(@"
                     /**********  ASP .NET Stats ******************/
                     SELECT
                         [runID]
+                        ,[TestRunId]
                         /*,'Asp.Net' as [StatType]*/
 	                    ,'TYPE'=SUBSTRING(	
 						                     datatbl.[Event Name]
@@ -969,6 +1071,7 @@ namespace PCRunCloningTool
                     FROM (
 	                    SELECT 
 							 runID
+                            ,[TestRunId]
 		                    ,prntbl.[Event Name]
 		                    ,prntbl.Endtime
 		                    ,prntbl.[Min]
@@ -977,19 +1080,20 @@ namespace PCRunCloningTool
 	                    FROM 
 		                    [{0}].[dbo].[Monitor_meter] prntbl  
                         WHERE 
-                            prntbl.runID = {1}
+                            prntbl.runID = {1} AND prntbl.TestRunId = {2}
                     ) datatbl
                     WHERE 
 	                    SUBSTRING(datatbl.[Event Name]
 	                    ,[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5)
 	                    ,[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6)) in ('Processstats','Webservicestats','APPpool_Wpstats','NETAPPstats','NETCLRStats','ASPNETstats')
-                ", GlobalSettings.msSqlDatabaseNameCustom, runID);
+                ", GlobalSettings.msSqlDatabaseNameCustom, runID, testRunTableID);
         }
 
-        private static string DbStat_SQL(string runID)
+        private static string DbStat_SQL(string runID, string testRunTableID)
         {
             return String.Format(@"
                     select [runID]
+                    ,[TestRunId]
                     /*,'Database' as [StatType]*/
                     ,'TYPE'=SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',2),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',2,3))  
                     ,'Server'=SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',4),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',4,5))
@@ -1012,6 +1116,7 @@ namespace PCRunCloningTool
                     from (
                     SELECT 
                     prntbl.runID
+                    ,[TestRunId]
                     ,prntbl.[Event Name]
                     ,prntbl.Endtime
                     ,prntbl.[Min]
@@ -1020,16 +1125,17 @@ namespace PCRunCloningTool
                     FROM 
                         [{0}].[dbo].[Monitor_meter] prntbl
                     WHERE 
-                        prntbl.runID = {1}
+                        prntbl.runID = {1} AND prntbl.TestRunId = {2}
                     ) datatbl
                     where SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))= 'SQLStats'
-                ", GlobalSettings.msSqlDatabaseNameCustom, runID);
+                ", GlobalSettings.msSqlDatabaseNameCustom, runID, testRunTableID);
         }
 
-        private static string ServerStat_SQL(string runID)
+        private static string ServerStat_SQL(string runID, string testRunTableID)
         {
             return String.Format(@"
                     select [runID]
+                    ,[TestRunId]
                     /*,'Server' as [StatType]*/
                     ,'TYPE'=SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',2),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',2,3))  
                     ,'Server'=SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',4),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',4,5))
@@ -1051,6 +1157,7 @@ namespace PCRunCloningTool
                     from (
                     SELECT 
                     prntbl.runID
+                    ,[TestRunId]
                     ,prntbl.[Event Name]
                     ,prntbl.Endtime
                     ,prntbl.[Min]
@@ -1059,13 +1166,13 @@ namespace PCRunCloningTool
                     FROM 
                         [{0}].[dbo].[Monitor_meter] prntbl
                     WHERE 
-                        prntbl.runID = {1}
+                        prntbl.runID = {1} AND prntbl.TestRunId = {2}
                     ) datatbl
                     where  SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))= 'ServerStats'
-                ", GlobalSettings.msSqlDatabaseNameCustom, runID);
+                ", GlobalSettings.msSqlDatabaseNameCustom, runID, testRunTableID);
         }
 
-        private static string RunFoldersPCDB_SQL(string domain, string project)
+        private static string RunFoldersPCDB_SQL(string domain, string project, string pcDbName)
         {
             return String.Format(@"
                         SELECT
@@ -1074,8 +1181,8 @@ namespace PCRunCloningTool
                             ,[AL_ITEM_ID]
                             ,[AL_FATHER_ID]
                             ,[AL_DESCRIPTION]
-                        FROM [{0}_{1}_db].[td].[ALL_LISTS]
-                    ", domain, project);
+                        FROM [{2}].[td].[ALL_LISTS]
+                    ", domain, project, pcDbName);
         }
 
         private static string RunFoldersCustomDB_SQL(string domain, string project)
@@ -1092,55 +1199,39 @@ namespace PCRunCloningTool
                     ", domain, project, GlobalSettings.msSqlDatabaseNameCustom);
         }
 
-        private static string TransactionSummary_SQL(string runID)
+        private static string TransactionSummary_SQL(string runID, string testRunTableID, string eventID)
         {
             return String.Format(@"
-                        SELECT 
-	                            '{0}' as [RunID],
-                                data50.[Event ID],data50.[Event Name] as [TransactionName],[RT50Perc],[RT85Perc],[RTmin],[RTmax],[RTavg],[pass],[fail]
-                                ,IIF(InStr(data50.[Event Name], 'API'), IIF([RT50Perc]<=0.300, 'Passed', 'Failed'), IIF([RT50Perc]<=0.500, 'Passed', 'Failed')) as [SLA50Perc]
-                                ,IIF(InStr(data50.[Event Name], 'API'), IIF([RT85Perc]<=0.500, 'Passed', 'Failed'), IIF([RT85Perc]<=0.800, 'Passed', 'Failed')) as [SLA85Perc]
-                        FROM ((
+
+
+
                             SELECT 
-	                             TOP 1 round(Value,4) AS [RT50Perc],irdata.[Event ID],[Event Name]
-	                        FROM ( 
-		                        SELECT 
-			                            TOP 50 PERCENT Value,[Event ID]
-		                        FROM 
-			                        [Event_meter]  
-		                        WHERE 
-			                        [Tree Path ID]>=0
-		                        ORDER BY Value ASC
-	                        ) irdata INNER JOIN [Event_map] map ON irdata.[Event ID]=map.[Event ID]
-	                        WHERE  map.[Event Type]='Transaction'
-                        ) data50
-                        INNER JOIN (
-	                        SELECT 
-		                         TOP 1 round(irdata.Value,4) AS [RT85Perc],irdata.[Event ID],[Event Name]
-		                    FROM ( 
-			                    SELECT 
-				                        TOP 85 PERCENT Value,[Event ID]
-			                    FROM 
-				                    [Event_meter]  
-			                    WHERE 
-				                    [Tree Path ID]>=0
-			                    ORDER BY Value ASC
-		                    ) irdata INNER JOIN [Event_map] map ON irdata.[Event ID]=map.[Event ID]
-		                    WHERE  map.[Event Type]='Transaction'
-                        ) data85 ON data50.[Event ID] = data85.[Event ID])
-                        INNER JOIN (
-	                        SELECT
-		                        [Event ID],round(MIN(Value),4) as [RTmin],round(MAX(Value),4) as [RTmax],round(AVG(Value),4) as [RTavg]
-                                ,COUNT(Switch(Status1=1, 'Passed')) as [pass]
-                                ,COUNT(Switch(Status1=0, 'Failed')) as [fail]
-	                        FROM 
-		                        [Event_meter] 
-	                        WHERE 
-		                        [Tree Path ID]>=0 and [Status1]=1
-	                        GROUP BY
-		                        [Event ID]
-                        ) dataStat ON data50.[Event ID] = dataStat.[Event ID]
-                    ", runID);
+	                             T3.*
+	                            ,[Event Name] AS [TransactionName]
+	                            ,IIF(InStr([Event Name], 'API'), IIF([RT50Perc]<=0.300, 'Passed', 'Failed'), IIF([RT50Perc]<=0.500, 'Passed', 'Failed')) as [SLA50Perc]
+	                            ,IIF(InStr([Event Name], 'API'), IIF([RT85Perc]<=0.500, 'Passed', 'Failed'), IIF([RT85Perc]<=0.800, 'Passed', 'Failed')) as [SLA85Perc]
+                            FROM (	
+	                            SELECT
+		                             {0} as [RunID]
+                                    ,{1} as [TestRunId]
+                                    ,{2} as [Event ID]
+		                            ,(SELECT MAX( ROUND(Value,4) ) FROM (
+			                            SELECT TOP 85 PERCENT [Event ID], [End Time], Value, Status1, [Tree Path ID]
+			                            FROM Event_meter [Meter] WHERE Meter.[Event ID]={2} AND [Status1]=1 ORDER BY Value ASC) T1) AS [RT85Perc]
+		                            ,(SELECT MAX( ROUND(Value,4) ) FROM (
+			                            SELECT TOP 50 PERCENT [Event ID], [End Time], Value, Status1, [Tree Path ID]
+			                            FROM Event_meter [Meter] WHERE Meter.[Event ID]={2} AND [Status1]=1 ORDER BY Value ASC) T2) AS [RT50Perc]
+		                            ,ROUND(MAX(Value),4) AS [RTmax]
+		                            ,ROUND(MIN(Value),4) AS [RTmin]
+		                            ,ROUND(AVG(Value),4) AS [RTavg]
+		                            ,COUNT(Status1) AS [Pass]
+		                            ,(SELECT COUNT(*) FROM Event_meter [Meter] WHERE Meter.[Event ID]={2} AND [Status1]=0) AS [Fail]
+		                            ,(SELECT COUNT(*) FROM Event_meter [Meter] WHERE Meter.[Event ID]={2} AND [Status1]=2) AS [Stop]
+	                            FROM Event_meter [Meter] WHERE Meter.[Event ID]={2} AND [Status1]=1
+                            ) T3 INNER JOIN [Event_map] MAP ON T3.[Event ID] = MAP.[Event ID]
+
+
+                    ", runID, testRunTableID, eventID);
         }
     }
 }
