@@ -221,8 +221,9 @@ namespace PCRunCloningTool
 
                     using (var bulkCopy = new SqlBulkCopy(destinationConnection))
                     {
-                        bulkCopy.ColumnMappings.Add("RunID", "RunID");  //TODO: Remove
+                        bulkCopy.ColumnMappings.Add("RunID", "RunID"); 
                         bulkCopy.ColumnMappings.Add("Metric", "Metric");
+                        bulkCopy.ColumnMappings.Add("Event ID", "Event ID");
                         bulkCopy.ColumnMappings.Add("TestRunId", "TestRunId");
                         bulkCopy.ColumnMappings.Add("TransactionName", "TransactionName");
                         bulkCopy.ColumnMappings.Add("EndTime", "EndTime");
@@ -269,7 +270,8 @@ namespace PCRunCloningTool
                     {
                         bulkCopy.ColumnMappings.Add("RunID", "RunID");
                         bulkCopy.ColumnMappings.Add("TestRunId", "TestRunId");
-                        bulkCopy.ColumnMappings.Add("Event Name", "Event Name");
+                        bulkCopy.ColumnMappings.Add("Event ID", "Event ID");
+                        bulkCopy.ColumnMappings.Add("Event Name", "Event Name"); 
                         bulkCopy.ColumnMappings.Add("Event Type", "Event Type");
                         bulkCopy.ColumnMappings.Add("EndTime", "EndTime");
                         bulkCopy.ColumnMappings.Add("Avg", "Avg");
@@ -316,6 +318,7 @@ namespace PCRunCloningTool
                 {
                     bulkCopy.ColumnMappings.Add("RunID", "RunID");
                     bulkCopy.ColumnMappings.Add("TestRunId", "TestRunId");
+                    bulkCopy.ColumnMappings.Add("Event ID", "Event ID");
                     bulkCopy.ColumnMappings.Add("TYPE", "TYPE");
                     bulkCopy.ColumnMappings.Add("Server", "Server");
                     bulkCopy.ColumnMappings.Add("Metrictype", "Metrictype");
@@ -599,6 +602,7 @@ namespace PCRunCloningTool
                         SELECT
                             '{0}' as [RunID]
                             ,{1} as [TestRunId]
+                            ,evmp.[Event ID]
 	                        ,evmp.[Event Name]
 	                        ,evmp.[Event Type]
 	                        ,Int([End Time]/60) as [Endtime]
@@ -608,7 +612,7 @@ namespace PCRunCloningTool
                         FROM [Monitor_meter] monmr
                         INNER JOIN [Event_map] evmp on monmr.[Event ID]=evmp.[Event ID] 
                         WHERE evmp.[Event Name] not like '%countersInError%' and evmp.[Event Type]='SiteScope' 
-                        GROUP BY evmp.[Event Name],evmp.[Event Type],Int([End Time]/60)
+                        GROUP BY evmp.[Event Name],evmp.[Event Type],Int([End Time]/60),evmp.[Event Id]
                     ", runID, testRunTableID);
         }
 
@@ -806,6 +810,7 @@ namespace PCRunCloningTool
 	                ID int NOT NULL IDENTITY (1,1),
                     TestRunId int NOT NULL,
 	                RunID int NOT NULL,
+                    [Event ID] int NOT NULL,
 	                Metric varchar(50) NOT NULL,
 	                TransactionName varchar(50) NOT NULL,
 	                EndTime varchar(50) NOT NULL,
@@ -829,6 +834,7 @@ namespace PCRunCloningTool
 	                ID int NOT NULL IDENTITY (1,1),
 	                RunID int NOT NULL,
                     TestRunId int NOT NULL,
+                    [Event ID] int NOT NULL,
 	                [Event Name] varchar(250) NOT NULL,
 	                [Event Type] varchar(50) NOT NULL,
 	                EndTime float NOT NULL,
@@ -880,6 +886,7 @@ namespace PCRunCloningTool
 	                ID int NOT NULL IDENTITY (1,1),
 	                RunID int NOT NULL,
                     TestRunId int NOT NULL,
+                    [Event ID] int NOT NULL,
 	                [TYPE] varchar(50),
 	                [Server] varchar(50),
 	                [Metrictype] varchar(50),
@@ -907,6 +914,7 @@ namespace PCRunCloningTool
 	                ID int NOT NULL IDENTITY (1,1),
 	                RunID int NOT NULL,
                     TestRunId int NOT NULL,
+                    [Event ID] int NOT NULL,
 	                [TYPE] varchar(50),
 	                [Server] varchar(50),
 	                [Metrictype] varchar(50),
@@ -934,6 +942,7 @@ namespace PCRunCloningTool
 	                ID int NOT NULL IDENTITY (1,1),
 	                RunID int NOT NULL,
                     TestRunId int NOT NULL,
+                    [Event ID] int NOT NULL,
 	                [TYPE] varchar(50),
 	                [Server] varchar(50),
 	                [Metrictype] varchar(50),
@@ -974,6 +983,7 @@ namespace PCRunCloningTool
                      SELECT 
 	                    '{0}' as [RunID]
                         ,{1} as [TestRunId]
+                        ,evmr.[Event ID]
                         , 'Response Time' as [Metric] 
 	                    ,evmp.[Event Name] as [TransactionName]
 	                    ,[End time] as [EndTime]
@@ -987,6 +997,7 @@ namespace PCRunCloningTool
                     SELECT 
 	                    '{0}' as [RunID]
                         ,{1} as [TestRunId]
+                        ,'-1' as [Event ID]
 	                    ,'Hits/Sec' as [Metric] 
 	                    ,'Scenario' as [TransactionName]
 	                    ,otbl.Endtime*10 as [EndTime]
@@ -1010,6 +1021,7 @@ namespace PCRunCloningTool
                     SELECT 
 	                     '{0}' as [RunID]
                         ,{1} as [TestRunId]
+                        ,'-1' as [Event ID]
 	                    ,'Running Users' as [Metric] 
 	                    ,'Scenario' as [TransactionName]
 	                    ,otbl.Endtime as [EndTime]
@@ -1030,6 +1042,7 @@ namespace PCRunCloningTool
                     SELECT
                         [runID]
                         ,[TestRunId]
+                        ,[Event Id]
                         /*,'Asp.Net' as [StatType]*/
 	                    ,'TYPE'=SUBSTRING(	
 						                     datatbl.[Event Name]
@@ -1072,6 +1085,7 @@ namespace PCRunCloningTool
 	                    SELECT 
 							 runID
                             ,[TestRunId]
+                            ,[Event Id]
 		                    ,prntbl.[Event Name]
 		                    ,prntbl.Endtime
 		                    ,prntbl.[Min]
@@ -1094,7 +1108,7 @@ namespace PCRunCloningTool
             return String.Format(@"
                     select [runID]
                     ,[TestRunId]
-                    /*,'Database' as [StatType]*/
+                    ,[Event Id]
                     ,'TYPE'=SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',2),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',2,3))  
                     ,'Server'=SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',4),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',4,5))
                     ,'Metrictype'=SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))
@@ -1115,13 +1129,14 @@ namespace PCRunCloningTool
                     ,datatbl.[Avg] as [Avg]
                     from (
                     SELECT 
-                    prntbl.runID
-                    ,[TestRunId]
-                    ,prntbl.[Event Name]
-                    ,prntbl.Endtime
-                    ,prntbl.[Min]
-                    ,prntbl.[avg]
-                    ,prntbl.[Max] 
+                        prntbl.runID
+                        ,[TestRunId]
+                        ,[Event Id]
+                        ,prntbl.[Event Name]
+                        ,prntbl.Endtime
+                        ,prntbl.[Min]
+                        ,prntbl.[avg]
+                        ,prntbl.[Max] 
                     FROM 
                         [{0}].[dbo].[Monitor_meter] prntbl
                     WHERE 
@@ -1136,7 +1151,7 @@ namespace PCRunCloningTool
             return String.Format(@"
                     select [runID]
                     ,[TestRunId]
-                    /*,'Server' as [StatType]*/
+                    ,[Event Id]
                     ,'TYPE'=SUBSTRING(datatbl.[Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',2),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',2,3))  
                     ,'Server'=SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',4),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',4,5))
                     ,'Metrictype'=SUBSTRING([Event Name],[{0}].[dbo].[fnNthIndex](datatbl.[Event Name],'/',5),[{0}].[dbo].[fnIndexdiff](datatbl.[Event Name],'/','/',5,6))
@@ -1156,13 +1171,14 @@ namespace PCRunCloningTool
                     ,datatbl.[Avg] as [Avg]
                     from (
                     SELECT 
-                    prntbl.runID
-                    ,[TestRunId]
-                    ,prntbl.[Event Name]
-                    ,prntbl.Endtime
-                    ,prntbl.[Min]
-                    ,prntbl.[avg]
-                    ,prntbl.[Max] 
+                        prntbl.runID
+                        ,[TestRunId]
+                        ,[Event Id]
+                        ,prntbl.[Event Name]
+                        ,prntbl.Endtime
+                        ,prntbl.[Min]
+                        ,prntbl.[avg]
+                        ,prntbl.[Max] 
                     FROM 
                         [{0}].[dbo].[Monitor_meter] prntbl
                     WHERE 

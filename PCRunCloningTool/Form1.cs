@@ -31,6 +31,7 @@ namespace PCRunCloningTool
         private static readonly String RUN_STATE_FINISHED = "Finished";
         private DataSet runsDataSet = new DataSet();
         private DataSet foldersDataSet = new DataSet();
+        private Dictionary<string, Dictionary<string, string>> domainProjetcDatabaseMap = new Dictionary<string, Dictionary<string, string>>();
 
         static int workingCounter = 0;
         static int workingLimit = 10;
@@ -48,10 +49,8 @@ namespace PCRunCloningTool
         public Form1()
         {
             InitializeComponent();
-
             AuthorizePC();
-
-            loadDomains();
+            LoadDomains();
 
             Logger.InitLogger();
             Logger.Log.Info("Application has started!");
@@ -81,7 +80,7 @@ namespace PCRunCloningTool
             
             if (unzipCheckBox.Checked)
             {
-                CopyRuns2(list);
+                CopyRuns(list);
             }
         }
 
@@ -92,36 +91,10 @@ namespace PCRunCloningTool
             {
                 result.Add(row["RN_RUN_ID"].ToString());
             }
-            CopyRuns2(result);
+            CopyRuns(result);
         }
 
-        private async void CopyRuns(List<string> runs)
-        {
-            if (!DbManager.CheckDatabaseExistsMSSQL(GlobalSettings.GetConnectionStringWithoutDB(), GlobalSettings.msSqlDatabaseNameCustom))
-                MessageBox.Show("Database does not exist: " + GlobalSettings.msSqlDatabaseNameCustom);
-            else
-            {
-                foreach (string runID in runs)
-                    if (!IsRunFinished(runID))
-                    {
-                        Logs("Run ID: " + runID + " is not Finished");
-                        continue;
-                    }
-                    else
-                    if (!DbManager.RunExist(runID, DOMAIN, PROJECT))
-                    {
-                        await CopyRun(runID);
-                    }
-                    else
-                    {
-                        Logs("Run is copied. ID: " + runID);
-                        Console.WriteLine("Run is already in DB. ID: " + runID + DbManager.GetIdOfCopiedRun(runID, DOMAIN, PROJECT));
-                    }
-            }
-        }
-
-
-        private async void CopyRunupd(object runID)
+        private async void CopyRun(object runID)
         {
             try
             {
@@ -143,8 +116,7 @@ namespace PCRunCloningTool
             }
             catch (Exception ex)
             {
-                //handle your exception...
-                string exMsg = ex.Message;
+                Logger.Log.Error(ex.Message);
             }
             finally
             {
@@ -154,7 +126,7 @@ namespace PCRunCloningTool
 
         }
 
-        private void CopyRuns2(List<string> runs)
+        private void CopyRuns(List<string> runs)
         {
 
             if (!DbManager.CheckDatabaseExistsMSSQL(GlobalSettings.GetConnectionStringWithoutDB(), GlobalSettings.msSqlDatabaseNameCustom))
@@ -171,7 +143,7 @@ namespace PCRunCloningTool
                     }
 
                     workingCounter += 1;
-                    ParameterizedThreadStart pts = new ParameterizedThreadStart(CopyRunupd);
+                    ParameterizedThreadStart pts = new ParameterizedThreadStart(CopyRun);
                     Thread th = new Thread(pts);
                     th.Start(runID);
 
@@ -183,9 +155,6 @@ namespace PCRunCloningTool
                 Console.WriteLine("Work completed!");
             }
         }
-
-
-
 
         private void Logs(string message)
         {
@@ -426,7 +395,7 @@ namespace PCRunCloningTool
             Utils.Unzip(filePath, location + "Reports");
         }
 
-        private void loadDomains()
+        private void LoadDomains()
         {
                 foreach (string domain in DbManager.LoadDomains())
                 {
@@ -446,8 +415,6 @@ namespace PCRunCloningTool
             foreach (string project in GetProjectList(domain))
                 projectComBox.Items.Add(project);            
         }
-
-        Dictionary<string, Dictionary<string, string>> domainProjetcDatabaseMap = new Dictionary<string, Dictionary<string, string>>();
 
         private List<string> GetProjectList(string domain)
         {
@@ -507,7 +474,7 @@ namespace PCRunCloningTool
             TestRunResults testResults = new TestRunResults();
             foreach (XElement run in runs.Elements())
             {
-                Console.WriteLine("Run: " + run.ToString());
+                // Console.WriteLine("Run: " + run.ToString());
                 TestRunReport testRunReport = new TestRunReport(
                     run.Element(NS + "ID").Value,
                     run.Element(NS + "Name").Value,
